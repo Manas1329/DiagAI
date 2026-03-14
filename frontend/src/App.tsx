@@ -23,16 +23,48 @@ import { parseText }            from './parser/textParser';
 import { getLayoutedElements }  from './hooks/useLayout';
 import { GraphModel, NodeType } from './models/graphModel';
 
-type EdgeTipStyle = 'arrow' | 'dot' | 'none';
+type EdgeTipStyle = 'arrow' | 'none';
 type EdgeLineType = 'smoothstep' | 'straight' | 'step' | 'bezier';
 type AnchorSide = 'auto' | 'top' | 'right' | 'bottom' | 'left';
 
 function markerForTip(tip: EdgeTipStyle) {
   if (tip === 'none') return undefined;
-  if (tip === 'dot') {
-    return { type: MarkerType.ArrowClosed, color: '#64748b', width: 7, height: 7 };
-  }
   return { type: MarkerType.ArrowClosed, color: '#64748b', width: 18, height: 18 };
+}
+
+function getNodeCenter(node: Node) {
+  const w = Number((node.data?.boxWidth as number) ?? node.width ?? 180);
+  const h = Number((node.data?.boxHeight as number) ?? node.height ?? 72);
+  return { x: node.position.x + w / 2, y: node.position.y + h / 2 };
+}
+
+function withEdgeLabelStyles(es: Edge[], ns: Node[]): Edge[] {
+  return es.map((e) => {
+    const src = ns.find((n) => n.id === e.source);
+    const tgt = ns.find((n) => n.id === e.target);
+    if (!src || !tgt) return { ...e, label: e.label ?? '' };
+
+    const labelText = String(e.label ?? '');
+
+    return {
+      ...e,
+      label: labelText,
+      labelShowBg: labelText.length > 0,
+      labelBgPadding: [6, 3],
+      labelBgBorderRadius: 6,
+      labelBgStyle: {
+        fill: '#ffffff',
+        fillOpacity: 0.92,
+      },
+      labelStyle: {
+        ...(e.labelStyle ?? {}),
+        fontSize: 12,
+        fontWeight: 600,
+        fill: '#334155',
+        whiteSpace: 'nowrap',
+      },
+    };
+  });
 }
 
 // ─── Default example ─────────────────────────────────────────────────────────
@@ -69,14 +101,15 @@ function modelToFlow(
     id:        e.id,
     source:    e.source,
     target:    e.target,
-    label:     e.label,
+    label:     e.label ?? '',
     type:      'smoothstep',
     markerEnd: markerForTip(edgeTip),
     interactionWidth: 30,
     style:     { stroke: '#64748b', strokeWidth: 2 },
   }));
 
-  return getLayoutedElements(rfNodes, rfEdges, dir);
+  const layouted = getLayoutedElements(rfNodes, rfEdges, dir);
+  return { nodes: layouted.nodes, edges: withEdgeLabelStyles(layouted.edges, layouted.nodes) };
 }
 
 // ─── App Inner (inside ReactFlowProvider) ─────────────────────────────────────
@@ -84,7 +117,7 @@ function modelToFlow(
 function AppInner() {
   const [inputText,   setInputText]   = useState(DEFAULT_TEXT);
   const [graphModel,  setGraphModel]  = useState<GraphModel | null>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node[]>([]);
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState<Node[]>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
   const [selectedId,      setSelectedId]      = useState<string | null>(null);
   const [selectedEdgeId,  setSelectedEdgeId]  = useState<string | null>(null);
@@ -98,6 +131,7 @@ function AppInner() {
   const [historyIdx, setHistoryIdx] = useState(-1);
 
   const canvasRef = useRef<DiagramCanvasHandle>(null);
+  const dragAxisRef = useRef<Map<string, { startX: number; startY: number; axis: 'x' | 'y' | null }>>(new Map());
 
   // ── Parse ─────────────────────────────────────────────────────────────────
   const handleParse = useCallback(() => {
@@ -105,7 +139,7 @@ function AppInner() {
     setGraphModel(model);
     const { nodes: ln, edges: le } = modelToFlow(model, layoutDirection, edgeTip);
     setNodes(ln);
-    setEdges(le);
+    setEdges(withEdgeLabelStyles(le, ln));
     // Reset history
     setHistory([{ nodes: ln, edges: le }]);
     setHistoryIdx(0);
@@ -164,15 +198,46 @@ function AppInner() {
           type:      'smoothstep',
           markerStart: undefined,
           markerEnd: markerForTip(edgeTip),
+          label: '',
           interactionWidth: 30,
           style:     { stroke: '#64748b', strokeWidth: 2 },
         },
         prev
       );
-      pushHistory(nodes, next);
-      return next;
+      const styled = withEdgeLabelStyles(next, nodes);
+      pushHistory(nodes, styled);
+      return styled;
     });
   }, [nodes, setEdges, pushHistory, edgeTip]);
+
+  const onNodesChange = useCallback((changes: any) => {
+    onNodesChangeBase(changes);
+  }, [onNodesChangeBase]);
+
+  const handleNodeDragStart = useCallback((_e: React.MouseEvent, node: Node) => {
+    dragAxisRef.current.set(node.id, { startX: node.position.x, startY: node.position.y, axis: null });
+  }, []);
+
+  const handleNodeDrag = useCallback((e: React.MouseEvent, node: Node) => {
+    if (!e.ctrlKey) return;
+    const state = dragAxisRef.current.get(node.id);
+    if (!state) return;
+
+    const dx = node.position.x - state.startX;
+    const dy = node.position.y - state.startY;
+    if (!state.axis) state.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+
+    setNodes((prev) => prev.map((n) => {
+      if (n.id !== node.id) return n;
+      return state.axis === 'x'
+        ? { ...n, position: { x: node.position.x, y: state.startY } }
+        : { ...n, position: { x: state.startX, y: node.position.y } };
+    }));
+  }, [setNodes]);
+
+  const handleNodeDragStop = useCallback((_e: React.MouseEvent, node: Node) => {
+    dragAxisRef.current.delete(node.id);
+  }, []);
 
   // ── Layout ────────────────────────────────────────────────────────────────
   const handleLayoutChange = useCallback((dir: 'TB' | 'LR') => {
@@ -295,6 +360,14 @@ function AppInner() {
     setEdges((prev) => prev.map((e) => e.id === id ? { ...e, type: nextType } : e));
   }, [setEdges]);
 
+  const handleEdgeLabelChange = useCallback((id: string, label: string) => {
+    setEdges((prev) => withEdgeLabelStyles(prev.map((e) => e.id === id ? { ...e, label } : e), nodes));
+  }, [setEdges, nodes]);
+
+  useEffect(() => {
+    setEdges((prev) => withEdgeLabelStyles(prev, nodes));
+  }, [nodes, setEdges]);
+
   // ── Save / Load ───────────────────────────────────────────────────────────
   const handleSave = useCallback(() => {
     const payload = { version: 1, graphModel, rfNodes: nodes, rfEdges: edges };
@@ -371,6 +444,9 @@ function AppInner() {
             onConnect={handleConnect}
             onNodeSelect={setSelectedId}
             onEdgeSelect={setSelectedEdgeId}
+            onNodeDragStart={handleNodeDragStart}
+            onNodeDrag={handleNodeDrag}
+            onNodeDragStop={handleNodeDragStop}
             onInstanceReady={setInstance}
           />
           {showExport && <ExportMenu onClose={() => setShowExport(false)} />}
@@ -383,6 +459,7 @@ function AppInner() {
             onTipChange={handleEdgeEndTipChange}
             onTypeChange={handleEdgeTypeChange}
             onAnchorChange={handleEdgeAnchorChange}
+            onLabelChange={handleEdgeLabelChange}
           />
         ) : (
           <NodeEditor

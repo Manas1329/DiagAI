@@ -4,8 +4,8 @@ interface ToolbarProps {
   canUndo:          boolean;
   canRedo:          boolean;
   layoutDirection:  'TB' | 'LR';
-  edgeTip:          'arrow' | 'dot' | 'none';
-  onEdgeTipChange:  (tip: 'arrow' | 'dot' | 'none') => void;
+  edgeTip:          'arrow' | 'none';
+  onEdgeTipChange:  (tip: 'arrow' | 'none') => void;
   onAddNode:        () => void;
   onUndo:           () => void;
   onRedo:           () => void;
@@ -70,12 +70,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
       <select
         className="btn-tool"
         value={edgeTip}
-        onChange={(e) => onEdgeTipChange(e.target.value as 'arrow' | 'dot' | 'none')}
+        onChange={(e) => onEdgeTipChange(e.target.value as 'arrow' | 'none')}
         title="Edge tip style"
         style={{ minWidth: 110 }}
       >
         <option value="arrow">Tip: Arrow</option>
-        <option value="dot">Tip: Dot</option>
         <option value="none">Tip: None</option>
       </select>
 

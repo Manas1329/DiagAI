@@ -27,11 +27,26 @@ interface DiagramCanvasProps {
   onConnect:      (conn: Connection) => void;
   onNodeSelect:   (id: string | null) => void;
   onEdgeSelect:   (id: string | null) => void;
+  onNodeDragStart?: (e: React.MouseEvent, node: Node) => void;
+  onNodeDrag?:      (e: React.MouseEvent, node: Node) => void;
+  onNodeDragStop?:  (e: React.MouseEvent, node: Node) => void;
   onInstanceReady?: (instance: ReactFlowInstance) => void;
 }
 
 const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
-  ({ nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeSelect, onEdgeSelect, onInstanceReady }, ref) => {
+  ({
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+    onNodeSelect,
+    onEdgeSelect,
+    onNodeDragStart,
+    onNodeDrag,
+    onNodeDragStop,
+    onInstanceReady,
+  }, ref) => {
     const instanceRef = useRef<ReactFlowInstance | null>(null);
 
     useImperativeHandle(ref, () => ({
@@ -48,6 +63,9 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
           onConnect={(conn) => {
             onConnect(conn);
           }}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDrag={onNodeDrag}
+          onNodeDragStop={onNodeDragStop}
           onNodeClick={(_e, node) => {
             onEdgeSelect(null);
             onNodeSelect(node.id);

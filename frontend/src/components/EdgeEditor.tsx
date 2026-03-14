@@ -1,7 +1,7 @@
 import React from 'react';
 import { Edge, MarkerType } from 'reactflow';
 
-type TipStyle = 'arrow' | 'dot' | 'none';
+type TipStyle = 'arrow' | 'none';
 type AnchorSide = 'auto' | 'top' | 'right' | 'bottom' | 'left';
 
 type EdgeLineType = 'smoothstep' | 'straight' | 'step' | 'bezier';
@@ -12,13 +12,13 @@ interface EdgeEditorProps {
   onTipChange: (id: string, end: 'start' | 'end', tip: TipStyle) => void;
   onTypeChange: (id: string, edgeType: EdgeLineType) => void;
   onAnchorChange: (id: string, end: 'source' | 'target', side: AnchorSide) => void;
+  onLabelChange: (id: string, label: string) => void;
 }
 
 function markerToTip(marker: Edge['markerStart'] | Edge['markerEnd']): TipStyle {
   if (!marker) return 'none';
   if (typeof marker === 'string') return marker === 'arrowclosed' ? 'arrow' : 'none';
   if (marker.type !== MarkerType.ArrowClosed) return 'arrow';
-  if ((marker.width ?? 18) <= 8) return 'dot';
   return 'arrow';
 }
 
@@ -32,7 +32,7 @@ function handleToSide(handleId: string | null | undefined, end: 'source' | 'targ
   return 'auto';
 }
 
-const EdgeEditor: React.FC<EdgeEditorProps> = ({ edge, onDelete, onTipChange, onTypeChange, onAnchorChange }) => {
+const EdgeEditor: React.FC<EdgeEditorProps> = ({ edge, onDelete, onTipChange, onTypeChange, onAnchorChange, onLabelChange }) => {
   if (!edge) {
     return (
       <div className="right-panel">
@@ -67,6 +67,14 @@ const EdgeEditor: React.FC<EdgeEditorProps> = ({ edge, onDelete, onTipChange, on
         <option value="bezier">Bezier</option>
       </select>
 
+      <label className="field-label" style={{ marginTop: 14 }}>Label (optional)</label>
+      <input
+        className="field-input"
+        value={String(edge.label ?? '')}
+        placeholder="Leave blank for none"
+        onChange={(e) => onLabelChange(edge.id, e.target.value)}
+      />
+
       <label className="field-label" style={{ marginTop: 14 }}>Start Tip</label>
       <select
         className="field-input"
@@ -74,7 +82,6 @@ const EdgeEditor: React.FC<EdgeEditorProps> = ({ edge, onDelete, onTipChange, on
         onChange={(e) => onTipChange(edge.id, 'start', e.target.value as TipStyle)}
       >
         <option value="arrow">Arrow</option>
-        <option value="dot">Dot</option>
         <option value="none">None</option>
       </select>
 
@@ -85,7 +92,6 @@ const EdgeEditor: React.FC<EdgeEditorProps> = ({ edge, onDelete, onTipChange, on
         onChange={(e) => onTipChange(edge.id, 'end', e.target.value as TipStyle)}
       >
         <option value="arrow">Arrow</option>
-        <option value="dot">Dot</option>
         <option value="none">None</option>
       </select>
 
