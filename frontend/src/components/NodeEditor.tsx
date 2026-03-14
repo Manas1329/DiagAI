@@ -8,6 +8,7 @@ interface NodeEditorProps {
   onTypeChange:   (id: string, type: NodeType) => void;
   onBoxColorChange: (id: string, color: string) => void;
   onShapeChange:  (id: string, shape: 'rounded' | 'square' | 'pill') => void;
+  onSizeChange:   (id: string, width: number, height: number) => void;
   onDelete:       (id: string) => void;
 }
 
@@ -17,6 +18,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({
   onTypeChange,
   onBoxColorChange,
   onShapeChange,
+  onSizeChange,
   onDelete,
 }) => {
   if (!node) {
@@ -58,6 +60,8 @@ const NodeEditor: React.FC<NodeEditorProps> = ({
   const nodeType: NodeType = data.nodeType ?? 'process';
   const currentColor = (data.boxColor as string) ?? '#e2e8f0';
   const currentShape = (data.nodeShape as 'rounded' | 'square' | 'pill') ?? 'rounded';
+  const currentWidth = Number((data.boxWidth as number) ?? 180);
+  const currentHeight = Number((data.boxHeight as number) ?? 72);
 
   return (
     <div className="right-panel">
@@ -105,6 +109,26 @@ const NodeEditor: React.FC<NodeEditorProps> = ({
       >
         {nodeType === 'none' ? data.label : `${NODE_COLORS[nodeType].icon} ${data.label}`}
       </div>
+
+      <label className="field-label" style={{ marginTop: 14 }}>Box Width</label>
+      <input
+        className="field-input"
+        type="number"
+        min={120}
+        max={420}
+        value={currentWidth}
+        onChange={(e) => onSizeChange(id, Number(e.target.value || 180), currentHeight)}
+      />
+
+      <label className="field-label" style={{ marginTop: 14 }}>Box Height</label>
+      <input
+        className="field-input"
+        type="number"
+        min={48}
+        max={220}
+        value={currentHeight}
+        onChange={(e) => onSizeChange(id, currentWidth, Number(e.target.value || 72))}
+      />
 
       {nodeType === 'none' && (
         <>

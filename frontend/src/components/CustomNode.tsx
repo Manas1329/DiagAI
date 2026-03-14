@@ -8,11 +8,15 @@ export interface CustomNodeData {
   nodeType: NodeType;
   boxColor?: string;
   nodeShape?: 'rounded' | 'square' | 'pill';
+  boxWidth?: number;
+  boxHeight?: number;
 }
 
 const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => {
   const colors = NODE_COLORS[data.nodeType] ?? NODE_COLORS.process;
   const isNoneType = data.nodeType === 'none';
+  const boxWidth = Number((data.boxWidth as number) ?? 180);
+  const boxHeight = Number((data.boxHeight as number) ?? 72);
 
   const borderRadius = (() => {
     if (!isNoneType) return '10px';
@@ -30,8 +34,8 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
         border:       `2px solid ${selected ? '#6366f1' : colors.border}`,
         color:        colors.text,
         borderRadius,
-        minWidth:     '170px',
-        maxWidth:     '220px',
+        width:        `${boxWidth}px`,
+        minHeight:    `${boxHeight}px`,
         padding:      '10px 14px',
         boxShadow:    selected
           ? '0 0 0 3px rgba(99,102,241,0.35), 0 4px 14px rgba(0,0,0,0.18)'
@@ -47,6 +51,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
       <Handle
         type="target"
         position={Position.Top}
+        id="target-top"
         style={{
           background:  colors.border,
           width:        9,
@@ -99,6 +104,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
       <Handle
         type="source"
         position={Position.Bottom}
+        id="source-bottom"
         style={{
           background:  colors.border,
           width:        9,
@@ -112,14 +118,39 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
       <Handle
         type="target"
         position={Position.Left}
-        id="left-target"
+        id="target-left"
         style={{ background: colors.border, width: 8, height: 8, border: '2px solid #fff', opacity: 0.6 }}
       />
       <Handle
         type="source"
         position={Position.Right}
-        id="right-source"
+        id="source-right"
         style={{ background: colors.border, width: 8, height: 8, border: '2px solid #fff', opacity: 0.6 }}
+      />
+
+      <Handle
+        type="source"
+        position={Position.Top}
+        id="source-top"
+        style={{ background: colors.border, width: 7, height: 7, border: '2px solid #fff', opacity: 0.45 }}
+      />
+      <Handle
+        type="target"
+        position={Position.Bottom}
+        id="target-bottom"
+        style={{ background: colors.border, width: 7, height: 7, border: '2px solid #fff', opacity: 0.45 }}
+      />
+      <Handle
+        type="source"
+        position={Position.Left}
+        id="source-left"
+        style={{ background: colors.border, width: 7, height: 7, border: '2px solid #fff', opacity: 0.45 }}
+      />
+      <Handle
+        type="target"
+        position={Position.Right}
+        id="target-right"
+        style={{ background: colors.border, width: 7, height: 7, border: '2px solid #fff', opacity: 0.45 }}
       />
     </div>
   );

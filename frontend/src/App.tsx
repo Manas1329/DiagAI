@@ -16,6 +16,7 @@ import TextInputPanel  from './components/TextInputPanel';
 import DiagramCanvas, { DiagramCanvasHandle } from './components/DiagramCanvas';
 import Toolbar         from './components/Toolbar';
 import NodeEditor      from './components/NodeEditor';
+import EdgeEditor      from './components/EdgeEditor';
 import ExportMenu      from './components/ExportMenu';
 
 import { parseText }            from './parser/textParser';
@@ -23,6 +24,8 @@ import { getLayoutedElements }  from './hooks/useLayout';
 import { GraphModel, NodeType } from './models/graphModel';
 
 type EdgeTipStyle = 'arrow' | 'dot' | 'none';
+type EdgeLineType = 'smoothstep' | 'straight' | 'step' | 'bezier';
+type AnchorSide = 'auto' | 'top' | 'right' | 'bottom' | 'left';
 
 function markerForTip(tip: EdgeTipStyle) {
   if (tip === 'none') return undefined;
@@ -69,6 +72,7 @@ function modelToFlow(
     label:     e.label,
     type:      'smoothstep',
     markerEnd: markerForTip(edgeTip),
+    interactionWidth: 30,
     style:     { stroke: '#64748b', strokeWidth: 2 },
   }));
 
@@ -83,6 +87,7 @@ function AppInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node[]>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
   const [selectedId,      setSelectedId]      = useState<string | null>(null);
+  const [selectedEdgeId,  setSelectedEdgeId]  = useState<string | null>(null);
   const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
   const [showExport,      setShowExport]      = useState(false);
   const [edgeTip,         setEdgeTip]         = useState<EdgeTipStyle>('arrow');
@@ -157,7 +162,9 @@ function AppInner() {
         {
           ...conn,
           type:      'smoothstep',
+          markerStart: undefined,
           markerEnd: markerForTip(edgeTip),
+          interactionWidth: 30,
           style:     { stroke: '#64748b', strokeWidth: 2 },
         },
         prev
@@ -200,12 +207,30 @@ function AppInner() {
     setSelectedId(null);
   }, [setNodes, setEdges, pushHistory]);
 
+  const handleDeleteEdge = useCallback((id: string) => {
+    setEdges((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      pushHistory(nodes, next);
+      return next;
+    });
+    setSelectedEdgeId(null);
+  }, [setEdges, pushHistory, nodes]);
+
   const handleBoxColorChange = useCallback((id: string, color: string) => {
     setNodes((prev) => prev.map((n) => n.id === id ? { ...n, data: { ...n.data, boxColor: color } } : n));
   }, [setNodes]);
 
   const handleShapeChange = useCallback((id: string, shape: 'rounded' | 'square' | 'pill') => {
     setNodes((prev) => prev.map((n) => n.id === id ? { ...n, data: { ...n.data, nodeShape: shape } } : n));
+  }, [setNodes]);
+
+  const handleSizeChange = useCallback((id: string, width: number, height: number) => {
+    const w = Math.max(120, Math.min(420, Number.isFinite(width) ? width : 180));
+    const h = Math.max(48, Math.min(220, Number.isFinite(height) ? height : 72));
+    setNodes((prev) => prev.map((n) => n.id === id
+      ? { ...n, data: { ...n.data, boxWidth: w, boxHeight: h } }
+      : n
+    ));
   }, [setNodes]);
 
   const handleAddNode = useCallback(() => {
@@ -234,6 +259,7 @@ function AppInner() {
       return next;
     });
 
+    setSelectedEdgeId(null);
     setSelectedId(id);
     setTimeout(() => instance?.fitView({ padding: 0.2 }), 60);
   }, [nodes, selectedId, setNodes, pushHistory, edges, instance]);
@@ -241,6 +267,32 @@ function AppInner() {
   const handleEdgeTipChange = useCallback((tip: EdgeTipStyle) => {
     setEdgeTip(tip);
     setEdges((prev) => prev.map((e) => ({ ...e, markerEnd: markerForTip(tip) })));
+  }, [setEdges]);
+
+  const handleEdgeEndTipChange = useCallback((id: string, end: 'start' | 'end', tip: EdgeTipStyle) => {
+    setEdges((prev) => prev.map((e) => {
+      if (e.id !== id) return e;
+      return end === 'start'
+        ? { ...e, markerStart: markerForTip(tip) }
+        : { ...e, markerEnd: markerForTip(tip) };
+    }));
+  }, [setEdges]);
+
+  const sideToHandle = (end: 'source' | 'target', side: AnchorSide): string | undefined => {
+    if (side === 'auto') return undefined;
+    return `${end}-${side}`;
+  };
+
+  const handleEdgeAnchorChange = useCallback((id: string, end: 'source' | 'target', side: AnchorSide) => {
+    setEdges((prev) => prev.map((e) => {
+      if (e.id !== id) return e;
+      if (end === 'source') return { ...e, sourceHandle: sideToHandle('source', side) };
+      return { ...e, targetHandle: sideToHandle('target', side) };
+    }));
+  }, [setEdges]);
+
+  const handleEdgeTypeChange = useCallback((id: string, nextType: EdgeLineType) => {
+    setEdges((prev) => prev.map((e) => e.id === id ? { ...e, type: nextType } : e));
   }, [setEdges]);
 
   // ── Save / Load ───────────────────────────────────────────────────────────
@@ -281,6 +333,7 @@ function AppInner() {
 
   // ── Selected node ─────────────────────────────────────────────────────────
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
+  const selectedEdge = edges.find((e) => e.id === selectedEdgeId) ?? null;
 
   return (
     <div className="app">
@@ -317,19 +370,31 @@ function AppInner() {
             onEdgesChange={onEdgesChange}
             onConnect={handleConnect}
             onNodeSelect={setSelectedId}
+            onEdgeSelect={setSelectedEdgeId}
             onInstanceReady={setInstance}
           />
           {showExport && <ExportMenu onClose={() => setShowExport(false)} />}
         </div>
 
-        <NodeEditor
-          node={selectedNode}
-          onLabelChange={handleLabelChange}
-          onTypeChange={handleTypeChange}
-          onBoxColorChange={handleBoxColorChange}
-          onShapeChange={handleShapeChange}
-          onDelete={handleDeleteNode}
-        />
+        {selectedEdge ? (
+          <EdgeEditor
+            edge={selectedEdge}
+            onDelete={handleDeleteEdge}
+            onTipChange={handleEdgeEndTipChange}
+            onTypeChange={handleEdgeTypeChange}
+            onAnchorChange={handleEdgeAnchorChange}
+          />
+        ) : (
+          <NodeEditor
+            node={selectedNode}
+            onLabelChange={handleLabelChange}
+            onTypeChange={handleTypeChange}
+            onBoxColorChange={handleBoxColorChange}
+            onShapeChange={handleShapeChange}
+            onSizeChange={handleSizeChange}
+            onDelete={handleDeleteNode}
+          />
+        )}
       </div>
     </div>
   );

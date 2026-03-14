@@ -8,8 +8,6 @@ import ReactFlow, {
   NodeChange,
   EdgeChange,
   Connection,
-  addEdge,
-  MarkerType,
   ReactFlowInstance,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -28,11 +26,12 @@ interface DiagramCanvasProps {
   onEdgesChange:  (changes: EdgeChange[]) => void;
   onConnect:      (conn: Connection) => void;
   onNodeSelect:   (id: string | null) => void;
+  onEdgeSelect:   (id: string | null) => void;
   onInstanceReady?: (instance: ReactFlowInstance) => void;
 }
 
 const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
-  ({ nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeSelect, onInstanceReady }, ref) => {
+  ({ nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeSelect, onEdgeSelect, onInstanceReady }, ref) => {
     const instanceRef = useRef<ReactFlowInstance | null>(null);
 
     useImperativeHandle(ref, () => ({
@@ -49,8 +48,20 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
           onConnect={(conn) => {
             onConnect(conn);
           }}
-          onNodeClick={(_e, node) => onNodeSelect(node.id)}
-          onPaneClick={() => onNodeSelect(null)}
+          onNodeClick={(_e, node) => {
+            onEdgeSelect(null);
+            onNodeSelect(node.id);
+          }}
+          onEdgeClick={(e, edge) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onNodeSelect(null);
+            onEdgeSelect(edge.id);
+          }}
+          onPaneClick={() => {
+            onNodeSelect(null);
+            onEdgeSelect(null);
+          }}
           nodeTypes={nodeTypes}
           onInit={(instance) => {
             instanceRef.current = instance;
@@ -63,6 +74,7 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
             type:      'smoothstep',
             style:     { stroke: '#64748b', strokeWidth: 2 },
             animated:  false,
+            interactionWidth: 30,
           }}
           connectionLineStyle={{ stroke: '#6366f1', strokeWidth: 2 }}
         >
