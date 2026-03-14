@@ -1,0 +1,6 @@
+# Ignore everything by default
+*
+
+# Keep these tracked
+!.gitignore
+!README.md
