@@ -1,6 +1,26 @@
-# Ignore everything by default
-*
+# Dependencies
+node_modules/
+**/node_modules/
 
-# Keep these tracked
-!.gitignore
-!README.md
+# Build outputs
+dist/
+build/
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
