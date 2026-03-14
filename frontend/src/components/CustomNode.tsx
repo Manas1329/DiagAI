@@ -6,18 +6,30 @@ export interface CustomNodeData {
   id: string;
   label: string;
   nodeType: NodeType;
+  boxColor?: string;
+  nodeShape?: 'rounded' | 'square' | 'pill';
 }
 
 const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => {
   const colors = NODE_COLORS[data.nodeType] ?? NODE_COLORS.process;
+  const isNoneType = data.nodeType === 'none';
+
+  const borderRadius = (() => {
+    if (!isNoneType) return '10px';
+    if (data.nodeShape === 'square') return '2px';
+    if (data.nodeShape === 'pill') return '999px';
+    return '10px';
+  })();
+
+  const nodeBg = isNoneType ? (data.boxColor ?? '#e2e8f0') : colors.bg;
 
   return (
     <div
       style={{
-        background:   colors.bg,
+        background:   nodeBg,
         border:       `2px solid ${selected ? '#6366f1' : colors.border}`,
         color:        colors.text,
-        borderRadius: '10px',
+        borderRadius,
         minWidth:     '170px',
         maxWidth:     '220px',
         padding:      '10px 14px',
@@ -48,9 +60,11 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
         {/* Icon + Label row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span role="img" aria-label={data.nodeType} style={{ fontSize: 16, flexShrink: 0 }}>
-            {colors.icon}
-          </span>
+          {!isNoneType && (
+            <span role="img" aria-label={data.nodeType} style={{ fontSize: 16, flexShrink: 0 }}>
+              {colors.icon}
+            </span>
+          )}
           <span
             style={{
               fontSize:   13,
@@ -65,18 +79,20 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
         </div>
 
         {/* Type badge */}
-        <span
-          style={{
-            fontSize:      9,
-            fontWeight:    600,
-            letterSpacing: '0.9px',
-            textTransform: 'uppercase',
-            opacity:       0.55,
-            marginTop:     2,
-          }}
-        >
-          {data.nodeType}
-        </span>
+        {!isNoneType && (
+          <span
+            style={{
+              fontSize:      9,
+              fontWeight:    600,
+              letterSpacing: '0.9px',
+              textTransform: 'uppercase',
+              opacity:       0.55,
+              marginTop:     2,
+            }}
+          >
+            {data.nodeType}
+          </span>
+        )}
       </div>
 
       {/* Source handle (bottom — outgoing edges) */}

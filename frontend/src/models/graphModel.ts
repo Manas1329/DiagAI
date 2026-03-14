@@ -1,6 +1,7 @@
 // ─── Canonical graph model ────────────────────────────────────────────────────
 
 export type NodeType =
+  | 'none'
   | 'actor'
   | 'process'
   | 'decision'
@@ -55,6 +56,7 @@ export const NODE_COLORS: Record<
   NodeType,
   { bg: string; border: string; text: string; icon: string }
 > = {
+  none:          { bg: '#f8fafc', border: '#94a3b8', text: '#334155', icon: '⬜' },
   actor:         { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af', icon: '👤' },
   process:       { bg: '#dcfce7', border: '#22c55e', text: '#15803d', icon: '⚙️' },
   decision:      { bg: '#fef9c3', border: '#eab308', text: '#854d0e', icon: '🔀' },
@@ -66,6 +68,7 @@ export const NODE_COLORS: Record<
 };
 
 export const NODE_TYPES_LIST: NodeType[] = [
+  'none',
   'actor', 'process', 'decision', 'database',
   'api', 'service', 'observability', 'security',
 ];

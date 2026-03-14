@@ -1,7 +1,7 @@
 // ─── Shared graph model (mirrors frontend/src/models/graphModel.ts) ──────────
 
 export type NodeType =
-  | 'actor' | 'process' | 'decision' | 'database'
+  | 'none'  | 'actor' | 'process' | 'decision' | 'database'
   | 'api'   | 'service' | 'observability' | 'security';
 
 export interface DiagNode {
@@ -87,7 +87,7 @@ function parseArrow(text: string): GraphModel {
     return n;
   };
   for (const raw of text.split('\n')) {
-    const parts = raw.trim().split(/\s*(?:->|-->|=>|→)\s*/).map((s) => s.trim()).filter(Boolean);
+    const parts = raw.trim().split(/\s*(?:->|-->|=>|→|─{2,})\s*/).map((s) => s.trim()).filter(Boolean);
     if (parts.length < 2) continue;
     for (let j = 0; j < parts.length - 1; j++) {
       const s = getOrCreate(parts[j]);
@@ -99,18 +99,121 @@ function parseArrow(text: string): GraphModel {
   return { nodes: Array.from(nodeMap.values()), edges };
 }
 
+function parseTree(text: string): GraphModel {
+  const nodeMap = new Map<string, DiagNode>();
+  const edges: DiagEdge[] = [];
+  const stack: Array<DiagNode | null> = [];
+  let i = 0;
+  let pendingDown = false;
+  let lastNode: DiagNode | null = null;
+
+  const getOrCreate = (label: string): DiagNode => {
+    const found = Array.from(nodeMap.values()).find((n) => n.label === label);
+    if (found) return found;
+    const n: DiagNode = { id: slug(label, i++), label, type: detectType(label) };
+    nodeMap.set(n.id, n);
+    return n;
+  };
+
+  const addEdge = (source: string, target: string) => {
+    if (source === target) return;
+    const id = `e_${source}_${target}`;
+    if (!edges.some((e) => e.id === id)) edges.push({ id, source, target });
+  };
+
+  const levelOf = (raw: string): number => {
+    let p = 0;
+    let level = 0;
+    while (p < raw.length) {
+      if (raw.startsWith('│   ', p) || raw.startsWith('|   ', p) || raw.startsWith('    ', p)) {
+        level++;
+        p += 4;
+        continue;
+      }
+      break;
+    }
+
+    const labelStart = raw.search(/[A-Za-z0-9]/);
+    const prefix = labelStart >= 0 ? raw.slice(0, labelStart) : raw;
+    const leading = raw.slice(0, Math.min(raw.length, 12));
+    if (/[├└]/.test(leading)) level += 1;
+
+    const pipeCount = (prefix.match(/[│|]/g) ?? []).length;
+    if (pipeCount > 0) level = Math.max(level, pipeCount + 1);
+
+    return level;
+  };
+
+  const cleanContent = (raw: string): string => {
+    let content = raw;
+    content = content.replace(/^[\s│|]*/, '');
+    content = content.replace(/^[├└+`|]?\s*[─-]{1,3}\s*/, '');
+    content = content.replace(/^[│|]+\s*/, '');
+    return content.trim();
+  };
+
+  for (const raw of text.split('\n')) {
+    if (!raw.trim()) continue;
+    const trimmed = raw.trim();
+
+    if (/^[↓↑→←⬇⬆➡⬅▼▲►◄|│\s-]+$/.test(trimmed) && !/[A-Za-z0-9]/.test(trimmed)) {
+      if (/[↓⬇]/.test(trimmed)) pendingDown = true;
+      continue;
+    }
+
+    const level = levelOf(raw);
+    const content = cleanContent(raw);
+    const parts = content.split(/\s*(?:->|-->|=>|→|─{2,})\s*/).map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) continue;
+
+    const first = getOrCreate(parts[0]);
+    let parent = level > 0 ? stack[level - 1] : null;
+
+    if (!parent && level > 0) {
+      for (let j = Math.min(level - 1, stack.length - 1); j >= 0; j--) {
+        if (stack[j]) {
+          parent = stack[j];
+          break;
+        }
+      }
+    }
+
+    if (pendingDown && lastNode) addEdge(lastNode.id, first.id);
+    else if (parent) addEdge(parent.id, first.id);
+
+    let prev = first;
+    for (let p = 1; p < parts.length; p++) {
+      const next = getOrCreate(parts[p]);
+      addEdge(prev.id, next.id);
+      prev = next;
+    }
+
+    stack[level] = prev;
+    stack.length = level + 1;
+    pendingDown = false;
+    lastNode = prev;
+  }
+
+  return { nodes: Array.from(nodeMap.values()), edges };
+}
+
 export function detectFormat(text: string): string {
   if (/^@startuml/i.test(text.trim())) return 'plantuml';
   if (/^(flowchart|graph)\s+(TD|LR|TB|RL|BT)\b/i.test(text.trim())) return 'mermaid';
+  if (/[├└│]/m.test(text)) return 'tree';
   if (/\n\s*[↓↑→←⬇⬆]\s*\n/.test(text)) return 'vertical';
-  if (/->|-->|=>|→/.test(text)) return 'arrow';
+  if (/->|-->|=>|→|─{2,}/.test(text)) return 'arrow';
   if (/^\s*[-*•]/m.test(text)) return 'bullet';
   return 'vertical';
 }
 
 export function parseText(text: string): GraphModel {
   const format = detectFormat(text);
-  const raw = format === 'arrow' ? parseArrow(text) : parseVertical(text);
+  const raw = format === 'tree'
+    ? parseTree(text)
+    : format === 'arrow'
+      ? parseArrow(text)
+      : parseVertical(text);
   return {
     ...raw,
     metadata: {

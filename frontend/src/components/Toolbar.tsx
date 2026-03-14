@@ -4,6 +4,7 @@ interface ToolbarProps {
   canUndo:          boolean;
   canRedo:          boolean;
   layoutDirection:  'TB' | 'LR';
+  onAddNode:        () => void;
   onUndo:           () => void;
   onRedo:           () => void;
   onLayoutChange:   (dir: 'TB' | 'LR') => void;
@@ -15,7 +16,7 @@ interface ToolbarProps {
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
-  canUndo, canRedo, layoutDirection,
+  canUndo, canRedo, layoutDirection, onAddNode,
   onUndo, onRedo, onLayoutChange, onFitView,
   onSave, onLoad, onExport, onClear,
 }) => {
@@ -63,6 +64,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Fit view */}
       <button className="btn-tool" onClick={onFitView} title="Fit diagram to window">⊞ Fit</button>
+      <button className="btn-tool" onClick={onAddNode} title="Add a new node to current diagram">＋ Node</button>
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />

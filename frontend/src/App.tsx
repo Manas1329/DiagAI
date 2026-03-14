@@ -74,6 +74,7 @@ function AppInner() {
   const [selectedId,      setSelectedId]      = useState<string | null>(null);
   const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
   const [showExport,      setShowExport]      = useState(false);
+  const [instance,        setInstance]        = useState<ReactFlowInstance | null>(null);
 
   // Simple undo/redo state stack
   const [history,    setHistory]    = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
@@ -187,6 +188,44 @@ function AppInner() {
     setSelectedId(null);
   }, [setNodes, setEdges, pushHistory]);
 
+  const handleBoxColorChange = useCallback((id: string, color: string) => {
+    setNodes((prev) => prev.map((n) => n.id === id ? { ...n, data: { ...n.data, boxColor: color } } : n));
+  }, [setNodes]);
+
+  const handleShapeChange = useCallback((id: string, shape: 'rounded' | 'square' | 'pill') => {
+    setNodes((prev) => prev.map((n) => n.id === id ? { ...n, data: { ...n.data, nodeShape: shape } } : n));
+  }, [setNodes]);
+
+  const handleAddNode = useCallback(() => {
+    const id = `node_${Date.now()}`;
+    const anchor = nodes.find((n) => n.id === selectedId);
+    const position = anchor
+      ? { x: anchor.position.x + 220, y: anchor.position.y + 40 }
+      : { x: 120 + (nodes.length % 4) * 220, y: 100 + Math.floor(nodes.length / 4) * 150 };
+
+    const nextNode: Node = {
+      id,
+      type: 'custom',
+      position,
+      data: {
+        id,
+        label: `New Node ${nodes.length + 1}`,
+        nodeType: 'none',
+        boxColor: '#e2e8f0',
+        nodeShape: 'rounded',
+      },
+    };
+
+    setNodes((prev) => {
+      const next = [...prev, nextNode];
+      pushHistory(next, edges);
+      return next;
+    });
+
+    setSelectedId(id);
+    setTimeout(() => instance?.fitView({ padding: 0.2 }), 60);
+  }, [nodes, selectedId, setNodes, pushHistory, edges, instance]);
+
   // ── Save / Load ───────────────────────────────────────────────────────────
   const handleSave = useCallback(() => {
     const payload = { version: 1, graphModel, rfNodes: nodes, rfEdges: edges };
@@ -232,6 +271,7 @@ function AppInner() {
         canUndo={historyIdx > 0}
         canRedo={historyIdx < history.length - 1}
         layoutDirection={layoutDirection}
+        onAddNode={handleAddNode}
         onUndo={handleUndo}
         onRedo={handleRedo}
         onLayoutChange={handleLayoutChange}
@@ -258,6 +298,7 @@ function AppInner() {
             onEdgesChange={onEdgesChange}
             onConnect={handleConnect}
             onNodeSelect={setSelectedId}
+            onInstanceReady={setInstance}
           />
           {showExport && <ExportMenu onClose={() => setShowExport(false)} />}
         </div>
@@ -266,6 +307,8 @@ function AppInner() {
           node={selectedNode}
           onLabelChange={handleLabelChange}
           onTypeChange={handleTypeChange}
+          onBoxColorChange={handleBoxColorChange}
+          onShapeChange={handleShapeChange}
           onDelete={handleDeleteNode}
         />
       </div>

@@ -36,17 +36,25 @@ function makeId(label: string, index: number): string {
 
 // ─── Format detection ─────────────────────────────────────────────────────────
 
-export type InputFormat = 'arrow' | 'vertical' | 'bullet' | 'mermaid' | 'plantuml';
+export type InputFormat = 'arrow' | 'vertical' | 'bullet' | 'tree' | 'mermaid' | 'plantuml';
 
 export function detectFormat(text: string): InputFormat {
   const trimmed = text.trim();
   if (/^@startuml/i.test(trimmed)) return 'plantuml';
   if (/^(flowchart|graph)\s+(TD|LR|TB|RL|BT)\b/i.test(trimmed)) return 'mermaid';
+  if (/[├└│]/m.test(text)) return 'tree';
   if (/\n\s*[↓↑→←⬇⬆➡⬅▼▲►◄]\s*\n/.test(text)) return 'vertical';
-  if (/->|-->|=>|→/.test(text)) return 'arrow';
+  if (/->|-->|=>|→|─{2,}/.test(text)) return 'arrow';
   if (/^\s*[-*•]/m.test(text)) return 'bullet';
   // Fallback: treat line-breaks as implicit vertical flow
   return 'vertical';
+}
+
+function splitChain(line: string): string[] {
+  return line
+    .split(/\s*(?:->|-->|=>|→|─{2,})\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 // ─── Parser implementations ───────────────────────────────────────────────────
@@ -68,7 +76,7 @@ function parseArrow(text: string): GraphModel {
   for (const rawLine of text.split('\n')) {
     const line = rawLine.trim();
     if (!line) continue;
-    const parts = line.split(/\s*(?:->|-->|=>|→)\s*/).map((s) => s.trim()).filter(Boolean);
+    const parts = splitChain(line);
     if (parts.length < 2) continue;
     for (let i = 0; i < parts.length - 1; i++) {
       const src = getOrCreate(parts[i]);
@@ -78,6 +86,118 @@ function parseArrow(text: string): GraphModel {
         edges.push({ id: edgeId, source: src.id, target: tgt.id });
       }
     }
+  }
+
+  return { nodes: Array.from(nodeMap.values()), edges };
+}
+
+/** Parses unicode tree lines (├ └ │) and mixed branch chains. */
+function parseTree(text: string): GraphModel {
+  const nodeMap = new Map<string, DiagNode>();
+  const edges: DiagEdge[] = [];
+  const stack: Array<DiagNode | null> = [];
+  let counter = 0;
+  let pendingDown = false;
+  let lastNode: DiagNode | null = null;
+
+  const getOrCreate = (label: string): DiagNode => {
+    const existing = Array.from(nodeMap.values()).find((n) => n.label === label);
+    if (existing) return existing;
+    const node: DiagNode = { id: makeId(label, counter++), label, type: detectNodeType(label) };
+    nodeMap.set(node.id, node);
+    return node;
+  };
+
+  const addEdge = (source: string, target: string) => {
+    if (source === target) return;
+    const id = `e_${source}_${target}`;
+    if (!edges.some((e) => e.id === id)) edges.push({ id, source, target });
+  };
+
+  const getIndentLevel = (raw: string): number => {
+    let i = 0;
+    let level = 0;
+    while (i < raw.length) {
+      if (raw.startsWith('│   ', i) || raw.startsWith('|   ', i) || raw.startsWith('    ', i)) {
+        level++;
+        i += 4;
+        continue;
+      }
+      break;
+    }
+
+    const labelStart = raw.search(/[A-Za-z0-9]/);
+    const prefix = labelStart >= 0 ? raw.slice(0, labelStart) : raw;
+
+    // Lines with branch glyphs are always children of current level/root context.
+    const leading = raw.slice(0, Math.min(raw.length, 12));
+    if (/[├└]/.test(leading)) level += 1;
+
+    // Pipe prefixes indicate nested branch depth, even with uneven spaces.
+    const pipeCount = (prefix.match(/[│|]/g) ?? []).length;
+    if (pipeCount > 0) level = Math.max(level, pipeCount + 1);
+
+    return level;
+  };
+
+  const cleanContent = (raw: string): string => {
+    let content = raw;
+
+    // Remove common tree line prefixes before label text.
+    content = content.replace(/^[\s│|]*/, '');
+    content = content.replace(/^[├└+`|]?\s*[─-]{1,3}\s*/, '');
+    content = content.replace(/^[│|]+\s*/, '');
+
+    return content.trim();
+  };
+
+  for (const rawLine of text.split('\n')) {
+    if (!rawLine.trim()) continue;
+    const trimmed = rawLine.trim();
+
+    if (/^[↓↑→←⬇⬆➡⬅▼▲►◄|│\s-]+$/.test(trimmed) && !/[A-Za-z0-9]/.test(trimmed)) {
+      if (/[↓⬇]/.test(trimmed)) pendingDown = true;
+      continue;
+    }
+
+    const level = getIndentLevel(rawLine);
+    let content = cleanContent(rawLine);
+    if (!content) continue;
+
+    const parts = splitChain(content);
+    if (parts.length === 0) continue;
+
+    const firstNode = getOrCreate(parts[0]);
+    let parent = level > 0 ? stack[level - 1] : null;
+
+    // If computed level is noisy, fall back to nearest known ancestor.
+    if (!parent && level > 0) {
+      for (let j = Math.min(level - 1, stack.length - 1); j >= 0; j--) {
+        if (stack[j]) {
+          parent = stack[j];
+          break;
+        }
+      }
+    }
+
+    // Vertical down arrows should connect from the previous concrete node.
+    if (pendingDown && lastNode) {
+      addEdge(lastNode.id, firstNode.id);
+    } else if (parent) {
+      addEdge(parent.id, firstNode.id);
+    }
+
+    let prev = firstNode;
+    for (let i = 1; i < parts.length; i++) {
+      const next = getOrCreate(parts[i]);
+      addEdge(prev.id, next.id);
+      prev = next;
+    }
+
+    stack[level] = prev;
+    stack.length = level + 1;
+    pendingDown = false;
+    lastNode = prev;
   }
 
   return { nodes: Array.from(nodeMap.values()), edges };
@@ -232,6 +352,7 @@ export function parseText(text: string): GraphModel {
       case 'mermaid':  return parseMermaid(text);
       case 'arrow':    return parseArrow(text);
       case 'bullet':   return parseBullet(text);
+      case 'tree':     return parseTree(text);
       case 'plantuml': return parsePlantUML(text);
       default:         return parseVertical(text);   // 'vertical'
     }

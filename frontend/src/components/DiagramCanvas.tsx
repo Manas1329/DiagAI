@@ -72,6 +72,7 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
           <MiniMap
             nodeColor={(n) => {
               const palette: Record<string, string> = {
+                none: '#94a3b8',
                 actor: '#3b82f6', process: '#22c55e', decision: '#eab308',
                 database: '#06b6d4', api: '#f97316', security: '#ec4899',
                 observability: '#8b5cf6', service: '#0284c7',

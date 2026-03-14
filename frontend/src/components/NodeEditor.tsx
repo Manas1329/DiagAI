@@ -6,10 +6,19 @@ interface NodeEditorProps {
   node:           Node | null;
   onLabelChange:  (id: string, label: string) => void;
   onTypeChange:   (id: string, type: NodeType) => void;
+  onBoxColorChange: (id: string, color: string) => void;
+  onShapeChange:  (id: string, shape: 'rounded' | 'square' | 'pill') => void;
   onDelete:       (id: string) => void;
 }
 
-const NodeEditor: React.FC<NodeEditorProps> = ({ node, onLabelChange, onTypeChange, onDelete }) => {
+const NodeEditor: React.FC<NodeEditorProps> = ({
+  node,
+  onLabelChange,
+  onTypeChange,
+  onBoxColorChange,
+  onShapeChange,
+  onDelete,
+}) => {
   if (!node) {
     return (
       <div className="right-panel">
@@ -47,6 +56,8 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ node, onLabelChange, onTypeChan
 
   const { id, data } = node;
   const nodeType: NodeType = data.nodeType ?? 'process';
+  const currentColor = (data.boxColor as string) ?? '#e2e8f0';
+  const currentShape = (data.nodeShape as 'rounded' | 'square' | 'pill') ?? 'rounded';
 
   return (
     <div className="right-panel">
@@ -84,7 +95,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ node, onLabelChange, onTypeChan
           marginTop: 12,
           padding: '6px 12px',
           borderRadius: 8,
-          background: NODE_COLORS[nodeType].bg,
+          background: nodeType === 'none' ? currentColor : NODE_COLORS[nodeType].bg,
           border: `1.5px solid ${NODE_COLORS[nodeType].border}`,
           color: NODE_COLORS[nodeType].text,
           fontSize: 12,
@@ -92,8 +103,32 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ node, onLabelChange, onTypeChan
           textAlign: 'center',
         }}
       >
-        {NODE_COLORS[nodeType].icon} {data.label}
+        {nodeType === 'none' ? data.label : `${NODE_COLORS[nodeType].icon} ${data.label}`}
       </div>
+
+      {nodeType === 'none' && (
+        <>
+          <label className="field-label" style={{ marginTop: 14 }}>Box Color</label>
+          <input
+            className="field-input"
+            type="color"
+            value={currentColor}
+            onChange={(e) => onBoxColorChange(id, e.target.value)}
+            style={{ height: 38, padding: 4 }}
+          />
+
+          <label className="field-label" style={{ marginTop: 14 }}>Shape</label>
+          <select
+            className="field-input"
+            value={currentShape}
+            onChange={(e) => onShapeChange(id, e.target.value as 'rounded' | 'square' | 'pill')}
+          >
+            <option value="rounded">Rounded Rectangle</option>
+            <option value="square">Square</option>
+            <option value="pill">Pill</option>
+          </select>
+        </>
+      )}
 
       {/* Node ID (read-only info) */}
       <div style={{ marginTop: 16 }}>
