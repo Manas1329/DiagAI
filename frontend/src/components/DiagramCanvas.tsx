@@ -61,7 +61,6 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
           deleteKeyCode="Delete"
           defaultEdgeOptions={{
             type:      'smoothstep',
-            markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
             style:     { stroke: '#64748b', strokeWidth: 2 },
             animated:  false,
           }}

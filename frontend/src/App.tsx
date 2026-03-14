@@ -22,6 +22,16 @@ import { parseText }            from './parser/textParser';
 import { getLayoutedElements }  from './hooks/useLayout';
 import { GraphModel, NodeType } from './models/graphModel';
 
+type EdgeTipStyle = 'arrow' | 'dot' | 'none';
+
+function markerForTip(tip: EdgeTipStyle) {
+  if (tip === 'none') return undefined;
+  if (tip === 'dot') {
+    return { type: MarkerType.ArrowClosed, color: '#64748b', width: 7, height: 7 };
+  }
+  return { type: MarkerType.ArrowClosed, color: '#64748b', width: 18, height: 18 };
+}
+
 // ─── Default example ─────────────────────────────────────────────────────────
 
 const DEFAULT_TEXT = `User
@@ -42,7 +52,8 @@ Logging & Monitoring System`;
 
 function modelToFlow(
   model: GraphModel,
-  dir: 'TB' | 'LR'
+  dir: 'TB' | 'LR',
+  edgeTip: EdgeTipStyle
 ): { nodes: Node[]; edges: Edge[] } {
   const rfNodes: Node[] = model.nodes.map((n) => ({
     id:       n.id,
@@ -57,7 +68,7 @@ function modelToFlow(
     target:    e.target,
     label:     e.label,
     type:      'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
+    markerEnd: markerForTip(edgeTip),
     style:     { stroke: '#64748b', strokeWidth: 2 },
   }));
 
@@ -74,6 +85,7 @@ function AppInner() {
   const [selectedId,      setSelectedId]      = useState<string | null>(null);
   const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
   const [showExport,      setShowExport]      = useState(false);
+  const [edgeTip,         setEdgeTip]         = useState<EdgeTipStyle>('arrow');
   const [instance,        setInstance]        = useState<ReactFlowInstance | null>(null);
 
   // Simple undo/redo state stack
@@ -86,14 +98,14 @@ function AppInner() {
   const handleParse = useCallback(() => {
     const model = parseText(inputText);
     setGraphModel(model);
-    const { nodes: ln, edges: le } = modelToFlow(model, layoutDirection);
+    const { nodes: ln, edges: le } = modelToFlow(model, layoutDirection, edgeTip);
     setNodes(ln);
     setEdges(le);
     // Reset history
     setHistory([{ nodes: ln, edges: le }]);
     setHistoryIdx(0);
     setTimeout(() => canvasRef.current?.fitView(), 60);
-  }, [inputText, layoutDirection, setNodes, setEdges]);
+  }, [inputText, layoutDirection, edgeTip, setNodes, setEdges]);
 
   // Auto-parse on first mount
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,7 +157,7 @@ function AppInner() {
         {
           ...conn,
           type:      'smoothstep',
-          markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
+          markerEnd: markerForTip(edgeTip),
           style:     { stroke: '#64748b', strokeWidth: 2 },
         },
         prev
@@ -153,7 +165,7 @@ function AppInner() {
       pushHistory(nodes, next);
       return next;
     });
-  }, [nodes, setEdges, pushHistory]);
+  }, [nodes, setEdges, pushHistory, edgeTip]);
 
   // ── Layout ────────────────────────────────────────────────────────────────
   const handleLayoutChange = useCallback((dir: 'TB' | 'LR') => {
@@ -226,6 +238,11 @@ function AppInner() {
     setTimeout(() => instance?.fitView({ padding: 0.2 }), 60);
   }, [nodes, selectedId, setNodes, pushHistory, edges, instance]);
 
+  const handleEdgeTipChange = useCallback((tip: EdgeTipStyle) => {
+    setEdgeTip(tip);
+    setEdges((prev) => prev.map((e) => ({ ...e, markerEnd: markerForTip(tip) })));
+  }, [setEdges]);
+
   // ── Save / Load ───────────────────────────────────────────────────────────
   const handleSave = useCallback(() => {
     const payload = { version: 1, graphModel, rfNodes: nodes, rfEdges: edges };
@@ -271,6 +288,8 @@ function AppInner() {
         canUndo={historyIdx > 0}
         canRedo={historyIdx < history.length - 1}
         layoutDirection={layoutDirection}
+        edgeTip={edgeTip}
+        onEdgeTipChange={handleEdgeTipChange}
         onAddNode={handleAddNode}
         onUndo={handleUndo}
         onRedo={handleRedo}

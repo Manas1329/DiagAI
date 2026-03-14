@@ -4,6 +4,8 @@ interface ToolbarProps {
   canUndo:          boolean;
   canRedo:          boolean;
   layoutDirection:  'TB' | 'LR';
+  edgeTip:          'arrow' | 'dot' | 'none';
+  onEdgeTipChange:  (tip: 'arrow' | 'dot' | 'none') => void;
   onAddNode:        () => void;
   onUndo:           () => void;
   onRedo:           () => void;
@@ -16,7 +18,7 @@ interface ToolbarProps {
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
-  canUndo, canRedo, layoutDirection, onAddNode,
+  canUndo, canRedo, layoutDirection, edgeTip, onEdgeTipChange, onAddNode,
   onUndo, onRedo, onLayoutChange, onFitView,
   onSave, onLoad, onExport, onClear,
 }) => {
@@ -65,6 +67,17 @@ const Toolbar: React.FC<ToolbarProps> = ({
       {/* Fit view */}
       <button className="btn-tool" onClick={onFitView} title="Fit diagram to window">⊞ Fit</button>
       <button className="btn-tool" onClick={onAddNode} title="Add a new node to current diagram">＋ Node</button>
+      <select
+        className="btn-tool"
+        value={edgeTip}
+        onChange={(e) => onEdgeTipChange(e.target.value as 'arrow' | 'dot' | 'none')}
+        title="Edge tip style"
+        style={{ minWidth: 110 }}
+      >
+        <option value="arrow">Tip: Arrow</option>
+        <option value="dot">Tip: Dot</option>
+        <option value="none">Tip: None</option>
+      </select>
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />

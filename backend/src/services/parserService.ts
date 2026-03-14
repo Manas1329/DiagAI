@@ -197,9 +197,123 @@ function parseTree(text: string): GraphModel {
   return { nodes: Array.from(nodeMap.values()), edges };
 }
 
+function parseAscii(text: string): GraphModel {
+  const lines = text.split('\n');
+  const nodeMap = new Map<string, DiagNode>();
+  const nodesWithPos: Array<{ node: DiagNode; row: number; start: number; end: number; center: number }> = [];
+  const edges: DiagEdge[] = [];
+  let i = 0;
+
+  const getOrCreate = (label: string): DiagNode => {
+    const clean = label.trim();
+    const found = Array.from(nodeMap.values()).find((n) => n.label === clean);
+    if (found) return found;
+    const n: DiagNode = { id: slug(clean, i++), label: clean, type: detectType(clean) };
+    nodeMap.set(n.id, n);
+    return n;
+  };
+
+  const addEdge = (source: DiagNode, target: DiagNode) => {
+    if (source.id === target.id) return;
+    const id = `e_${source.id}_${target.id}`;
+    if (!edges.some((e) => e.id === id)) edges.push({ id, source: source.id, target: target.id });
+  };
+
+  const TOKEN_RE = /[A-Za-z0-9][A-Za-z0-9_./()]*?(?:\s+[A-Za-z0-9][A-Za-z0-9_./()]*)*(?=\s*(?:[─\-|│←→↑↓]|$))/g;
+
+  lines.forEach((line, row) => {
+    let match: RegExpExecArray | null;
+    while ((match = TOKEN_RE.exec(line)) !== null) {
+      const label = match[0].trim();
+      if (!label) continue;
+      const start = match.index;
+      const end = start + label.length;
+      const center = Math.floor((start + end) / 2);
+      const node = getOrCreate(label);
+      nodesWithPos.push({ node, row, start, end, center });
+    }
+  });
+
+  const byRow = new Map<number, Array<{ node: DiagNode; row: number; start: number; end: number; center: number }>>();
+  for (const n of nodesWithPos) {
+    const arr = byRow.get(n.row) ?? [];
+    arr.push(n);
+    byRow.set(n.row, arr);
+  }
+
+  for (const arr of byRow.values()) {
+    arr.sort((a, b) => a.start - b.start);
+    for (let j = 0; j < arr.length - 1; j++) {
+      const left = arr[j];
+      const right = arr[j + 1];
+      const segment = lines[left.row].slice(left.end, right.start);
+      if (!/[─\-=→←]/.test(segment)) continue;
+      if (/←/.test(segment) && !/→/.test(segment)) addEdge(right.node, left.node);
+      else addEdge(left.node, right.node);
+    }
+  }
+
+  for (const top of nodesWithPos) {
+    const lower = nodesWithPos
+      .filter((n) => n.row > top.row && Math.abs(n.center - top.center) <= 2)
+      .sort((a, b) => a.row - b.row)[0];
+
+    if (!lower) continue;
+
+    let hasVertical = false;
+    let sawUp = false;
+    let sawDown = false;
+
+    for (let r = top.row + 1; r < lower.row; r++) {
+      const line = lines[r] ?? '';
+      const from = Math.max(0, top.center - 2);
+      const to = Math.min(line.length, top.center + 3);
+      const window = line.slice(from, to);
+      if (/[|│↑↓]/.test(window)) hasVertical = true;
+      if (/↑/.test(window)) sawUp = true;
+      if (/↓/.test(window)) sawDown = true;
+    }
+
+    if (!hasVertical) continue;
+    if (sawUp && !sawDown) addEdge(lower.node, top.node);
+    else addEdge(top.node, lower.node);
+  }
+
+  for (let r = 1; r < lines.length; r++) {
+    const line = lines[r];
+    if (!/[└┘]/.test(line)) continue;
+
+    const labelMatch = line.match(TOKEN_RE);
+    if (!labelMatch || labelMatch.length !== 1) continue;
+    const loop = getOrCreate(labelMatch[0]);
+
+    const arrowLine = lines[r - 1] ?? '';
+    const upCol = arrowLine.indexOf('↑');
+    const downCol = arrowLine.indexOf('↓');
+    if (upCol < 0 && downCol < 0) continue;
+
+    const nearestAbove = (col: number) => nodesWithPos
+      .filter((n) => n.row < r)
+      .sort((a, b) => {
+        const ra = Math.abs(a.center - col) + (r - a.row) * 0.1;
+        const rb = Math.abs(b.center - col) + (r - b.row) * 0.1;
+        return ra - rb;
+      })[0]?.node;
+
+    const upNode = upCol >= 0 ? nearestAbove(upCol) : undefined;
+    const downNode = downCol >= 0 ? nearestAbove(downCol) : undefined;
+
+    if (downNode) addEdge(downNode, loop);
+    if (upNode) addEdge(loop, upNode);
+  }
+
+  return { nodes: Array.from(nodeMap.values()), edges };
+}
+
 export function detectFormat(text: string): string {
   if (/^@startuml/i.test(text.trim())) return 'plantuml';
   if (/^(flowchart|graph)\s+(TD|LR|TB|RL|BT)\b/i.test(text.trim())) return 'mermaid';
+  if (/(?:─{2,}|-{2,})/.test(text) && /[│|└┘┌┐]/.test(text)) return 'ascii';
   if (/[├└│]/m.test(text)) return 'tree';
   if (/\n\s*[↓↑→←⬇⬆]\s*\n/.test(text)) return 'vertical';
   if (/->|-->|=>|→|─{2,}/.test(text)) return 'arrow';
@@ -211,6 +325,8 @@ export function parseText(text: string): GraphModel {
   const format = detectFormat(text);
   const raw = format === 'tree'
     ? parseTree(text)
+    : format === 'ascii'
+      ? parseAscii(text)
     : format === 'arrow'
       ? parseArrow(text)
       : parseVertical(text);
