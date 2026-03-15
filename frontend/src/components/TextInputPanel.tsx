@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { detectFormat } from '../parser/textParser';
 
 const EXAMPLE_TEXT = `User
@@ -31,6 +31,7 @@ interface TextInputPanelProps {
 const TextInputPanel: React.FC<TextInputPanelProps> = ({ text, onChange, onParse }) => {
   const detected = detectFormat(text);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') onParse();
@@ -39,6 +40,17 @@ const TextInputPanel: React.FC<TextInputPanelProps> = ({ text, onChange, onParse
   const loadExample = () => onChange(EXAMPLE_TEXT);
 
   const insertHint = (sample: string) => onChange(sample);
+
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsExpanded(false);
+    };
+
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [isExpanded]);
 
   return (
     <div className="left-panel">
@@ -94,6 +106,15 @@ const TextInputPanel: React.FC<TextInputPanelProps> = ({ text, onChange, onParse
         }}
       />
 
+      <button
+        className="btn-ghost"
+        onClick={() => setIsExpanded(true)}
+        style={{ width: '100%' }}
+        title="Open a larger editor window"
+      >
+        Open Extended Input Window
+      </button>
+
       {/* Parse button */}
       <button className="btn-primary" onClick={onParse} style={{ width: '100%' }}>
         ✦ Generate Diagram  <kbd style={{ opacity: 0.6, fontSize: 10 }}>Ctrl + Enter</kbd>
@@ -119,6 +140,83 @@ const TextInputPanel: React.FC<TextInputPanelProps> = ({ text, onChange, onParse
 
       {/* Hidden file input for loading diagrams */}
       <input ref={fileRef} type="file" accept=".json" style={{ display: 'none' }} />
+
+      {isExpanded && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setIsExpanded(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.75)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(1200px, 96vw)',
+              height: 'min(85vh, 900px)',
+              background: '#0b1220',
+              border: '1px solid #334155',
+              borderRadius: 12,
+              boxShadow: '0 24px 80px rgba(0, 0, 0, 0.45)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: 14,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <strong style={{ color: '#cbd5e1', fontSize: 13, letterSpacing: 0.3 }}>Extended Input Editor</strong>
+              <button className="btn-ghost" onClick={() => setIsExpanded(false)}>
+                Close
+              </button>
+            </div>
+
+            <textarea
+              autoFocus
+              value={text}
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                  onParse();
+                }
+              }}
+              spellCheck={false}
+              placeholder="Paste or type your diagram text here…"
+              style={{
+                flex: 1,
+                width: '100%',
+                resize: 'none',
+                background: '#020617',
+                color: '#e2e8f0',
+                border: '1px solid #334155',
+                borderRadius: 10,
+                padding: '14px',
+                fontFamily: "'Fira Code', 'Consolas', monospace",
+                fontSize: 13,
+                lineHeight: 1.65,
+                outline: 'none',
+              }}
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ color: '#94a3b8', fontSize: 11 }}>
+                Press Esc to close, Ctrl + Enter to generate diagram
+              </span>
+              <button className="btn-primary" onClick={onParse}>
+                Generate Diagram
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
