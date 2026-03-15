@@ -12,7 +12,12 @@ const NODE_TYPE_PATTERNS: Array<[NodeType, RegExp]> = [
   ['service',       /\b(service|module|component|handler|processor|worker|queue|bus|engine|pipeline|scheduler)\b/i],
 ];
 
+const FILE_TYPE_RE = /\b[a-z0-9][\w-]*\.(?:pdf|doc|docx|xls|xlsx|csv|txt|json|xml|yaml|yml|png|jpe?g|gif|bmp|svg|zip|rar|7z|tar|gz|mp3|wav|mp4|avi|mov|ppt|pptx)\b/i;
+const FILE_TYPE_WORD_RE = /\b(pdf|docx?|xlsx?|csv|txt|json|xml|yaml|yml|png|jpe?g|gif|svg|zip|rar|7z|mp3|wav|mp4|avi|mov|pptx?)\b/i;
+
 function detectNodeType(label: string): NodeType {
+  if (label.trimEnd().endsWith('?')) return 'decision';
+  if (FILE_TYPE_RE.test(label) || FILE_TYPE_WORD_RE.test(label)) return 'none';
   for (const [type, pattern] of NODE_TYPE_PATTERNS) {
     if (pattern.test(label)) return type;
   }
@@ -46,7 +51,7 @@ export function detectFormat(text: string): InputFormat {
   if (/(?:─{2,}|-{2,})/.test(text) && /[│|└┘┌┐]/.test(text)) return 'ascii';
   if (/[├└│]/m.test(text)) return 'tree';
   if (/\n\s*[↓↑→←⬇⬆➡⬅▼▲►◄]\s*\n/.test(text)) return 'vertical';
-  if (/->|-->|=>|→|─{2,}/.test(text)) return 'arrow';
+  if (/->|-->|=>|→|─{2,}|-{3,}/.test(text)) return 'arrow';
   if (/^\s*[-*•]/m.test(text)) return 'bullet';
   // Fallback: treat line-breaks as implicit vertical flow
   return 'vertical';
@@ -54,13 +59,13 @@ export function detectFormat(text: string): InputFormat {
 
 function splitChain(line: string): string[] {
   return line
-    .split(/\s*(?:->|-->|=>|→|─{2,})\s*/)
+    .split(/\s*(?:->|-->|=>|→|─{2,}|-{3,})\s*/)
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
 function splitChainWithConnectors(line: string): { parts: string[]; connectors: string[] } {
-  const connRe = /\s*(->|-->|=>|→|─{2,})\s*/g;
+  const connRe = /\s*(->|-->|=>|→|─{2,}|-{3,})\s*/g;
   const parts: string[] = [];
   const connectors: string[] = [];
   let last = 0;
@@ -182,7 +187,8 @@ function parseTree(text: string): GraphModel {
     const trimmed = rawLine.trim();
 
     if (/^[↓↑→←⬇⬆➡⬅▼▲►◄|│\s-]+$/.test(trimmed) && !/[A-Za-z0-9]/.test(trimmed)) {
-      pendingConnector = true;
+      const pipeOnly = /^[|│\s]+$/.test(trimmed);
+      pendingConnector = !pipeOnly;
       if (/[↓⬇]/.test(trimmed)) pendingDown = true;
       continue;
     }
@@ -210,6 +216,10 @@ function parseTree(text: string): GraphModel {
     // Vertical down arrows should connect from the previous concrete node.
     if (pendingConnector && lastNode && level >= lastLevel) {
       addEdge(lastNode.id, firstNode.id, pendingDown);
+    } else if (pendingConnector && lastNode && level < lastLevel) {
+      // Going back up the tree – connect from the last node seen at this level
+      const ancestor = stack[level] ?? lastNode;
+      addEdge(ancestor.id, firstNode.id, pendingDown);
     } else if (parent) {
       addEdge(parent.id, firstNode.id, false);
     }

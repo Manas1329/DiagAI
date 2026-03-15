@@ -47,8 +47,12 @@ const TREE_PIPES = '\\u2502|'; // \u2502 = BOX DRAWINGS LIGHT VERTICAL
 const TREE_BRANCH = '\\u251c\\u2514'; // \u251c, \u2514
 const DOWN_ARROWS = '\\u2193\\u2b07\\u25bc'; // down arrow variants
 const ANY_ARROWS = '\\u2191\\u2193\\u2190\\u2192\\u2b06\\u2b07\\u27a1\\u2b05\\u25bc\\u25b2\\u25ba\\u25c4';
+const FILE_TYPE_RE = /\b[a-z0-9][\w-]*\.(?:pdf|doc|docx|xls|xlsx|csv|txt|json|xml|yaml|yml|png|jpe?g|gif|bmp|svg|zip|rar|7z|tar|gz|mp3|wav|mp4|avi|mov|ppt|pptx)\b/i;
+const FILE_TYPE_WORD_RE = /\b(pdf|docx?|xlsx?|csv|txt|json|xml|yaml|yml|png|jpe?g|gif|svg|zip|rar|7z|mp3|wav|mp4|avi|mov|pptx?)\b/i;
 
 function detectType(label: string): NodeType {
+  if (label.trimEnd().endsWith('?')) return 'decision';
+  if (FILE_TYPE_RE.test(label) || FILE_TYPE_WORD_RE.test(label)) return 'none';
   for (const [type, re] of TYPE_PATTERNS) {
     if (re.test(label)) return type;
   }
@@ -60,7 +64,7 @@ function slug(text: string, i: number): string {
 }
 
 function splitChainWithConnectors(line: string): { parts: string[]; connectors: string[] } {
-  const connRe = /\s*(->|-->|=>|\u2192|\u2500{2,})\s*/g;
+  const connRe = /\s*(->|-->|=>|\u2192|\u2500{2,}|-{3,})\s*/g;
   const parts: string[] = [];
   const connectors: string[] = [];
   let last = 0;
@@ -212,7 +216,8 @@ function parseTree(text: string): GraphModel {
     const trimmed = rawLine.trim();
 
     if (new RegExp(`^[${ANY_ARROWS}${TREE_PIPES}\\s-]+$`).test(trimmed) && !/[A-Za-z0-9]/.test(trimmed)) {
-      pendingConnector = true;
+      const pipeOnly = new RegExp(`^[${TREE_PIPES}\\s]+$`).test(trimmed);
+      pendingConnector = !pipeOnly;
       if (new RegExp(`[${DOWN_ARROWS}]`).test(trimmed)) pendingDown = true;
       continue;
     }
@@ -235,7 +240,10 @@ function parseTree(text: string): GraphModel {
     }
 
     if (pendingConnector && lastNode && level >= lastLevel) addEdge(lastNode.id, firstNode.id, pendingDown);
-    else if (parent) addEdge(parent.id, firstNode.id, false);
+    else if (pendingConnector && lastNode && level < lastLevel) {
+      const ancestor = stack[level] ?? lastNode;
+      addEdge(ancestor.id, firstNode.id, pendingDown);
+    } else if (parent) addEdge(parent.id, firstNode.id, false);
 
     let prev = firstNode;
     for (let j = 1; j < parts.length; j++) {
@@ -260,7 +268,7 @@ export function detectFormat(text: string): string {
   if (/(?:\u2500{2,}|-{2,})/.test(text) && /[\u2502|\u2514\u2518\u250c\u2510]/.test(text)) return 'ascii';
   if (/[\u251c\u2514\u2502]/m.test(text)) return 'tree';
   if (/\n\s*[\u2191\u2193\u2190\u2192\u2b06\u2b07\u27a1\u2b05\u25bc\u25b2\u25ba\u25c4]\s*\n/.test(text)) return 'vertical';
-  if (/->|-->|=>|\u2192|\u2500{2,}/.test(text)) return 'arrow';
+  if (/->|-->|=>|\u2192|\u2500{2,}|-{3,}/.test(text)) return 'arrow';
   return 'vertical';
 }
 

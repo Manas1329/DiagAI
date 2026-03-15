@@ -202,9 +202,19 @@ function withTreeDecisionAnchors(es: Edge[], ns: Node[]): Edge[] {
   result.forEach((e, i) => indexById.set(e.id, i));
   const centers = new Map(ns.map((n) => [n.id, getNodeCenter(n)]));
 
-  const childSidesForCount = (count: number): Side[] => {
+  const hasUpwardIncoming = new Set<string>();
+  for (const edge of result) {
+    const sourceCenter = centers.get(edge.source);
+    const targetCenter = centers.get(edge.target);
+    if (!sourceCenter || !targetCenter) continue;
+    if (sourceCenter.y > targetCenter.y + 4) hasUpwardIncoming.add(edge.target);
+  }
+
+  const childSidesForCount = (sourceId: string, count: number): Side[] => {
     if (count <= 1) return ['bottom'];
-    if (count === 2) return ['left', 'right'];
+    if (count === 2) {
+      return hasUpwardIncoming.has(sourceId) ? ['left', 'bottom'] : ['left', 'right'];
+    }
     if (count === 3) return ['left', 'bottom', 'right'];
     return ['left', 'bottom', 'right', ...Array.from({ length: count - 3 }, (): Side => 'bottom')];
   };
@@ -227,7 +237,8 @@ function withTreeDecisionAnchors(es: Edge[], ns: Node[]): Edge[] {
       const rightCenter = centers.get(right.target);
       return (leftCenter?.x ?? 0) - (rightCenter?.x ?? 0);
     });
-    const sides = childSidesForCount(ordered.length);
+    const sourceId = ordered[0]?.source ?? '';
+    const sides = childSidesForCount(sourceId, ordered.length);
 
     ordered.forEach((edge, index) => {
       const edgeIndex = indexById.get(edge.id);
@@ -247,9 +258,10 @@ function withTreeDecisionAnchors(es: Edge[], ns: Node[]): Edge[] {
 
 function applyAnchors(es: Edge[], ns: Node[], dir: 'TB' | 'LR', treeMode = false): Edge[] {
   const base = dir === 'LR' ? withClosestAnchors(es, ns) : withVerticalPreferredAnchors(es, ns);
+  if (dir === 'LR') return base;
   const spreadSource = distributeNodeHandles(base, dir, 'source');
   const spreadTarget = distributeNodeHandles(spreadSource, dir, 'target');
-  if (dir === 'LR' || !treeMode) return spreadTarget;
+  if (!treeMode) return spreadTarget;
   return withTreeDecisionAnchors(spreadTarget, ns);
 }
 
