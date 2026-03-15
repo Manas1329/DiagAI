@@ -6,6 +6,7 @@ interface NodeEditorProps {
   node:           Node | null;
   onLabelChange:  (id: string, label: string) => void;
   onTypeChange:   (id: string, type: NodeType) => void;
+  onPositionChange: (id: string, x: number, y: number) => void;
   onBoxColorChange: (id: string, color: string) => void;
   onShapeChange:  (id: string, shape: 'rounded' | 'square' | 'pill') => void;
   onSizeChange:   (id: string, width: number, height: number) => void;
@@ -16,6 +17,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({
   node,
   onLabelChange,
   onTypeChange,
+  onPositionChange,
   onBoxColorChange,
   onShapeChange,
   onSizeChange,
@@ -62,6 +64,8 @@ const NodeEditor: React.FC<NodeEditorProps> = ({
   const currentShape = (data.nodeShape as 'rounded' | 'square' | 'pill') ?? 'rounded';
   const currentWidth = Number((data.boxWidth as number) ?? 180);
   const currentHeight = Number((data.boxHeight as number) ?? 72);
+  const currentX = Math.round(node.position.x);
+  const currentY = Math.round(node.position.y);
 
   return (
     <div className="right-panel">
@@ -92,6 +96,22 @@ const NodeEditor: React.FC<NodeEditorProps> = ({
           </option>
         ))}
       </select>
+
+      <label className="field-label" style={{ marginTop: 14 }}>Position X</label>
+      <input
+        className="field-input"
+        type="number"
+        value={currentX}
+        onChange={(e) => onPositionChange(id, Number(e.target.value || 0), currentY)}
+      />
+
+      <label className="field-label" style={{ marginTop: 14 }}>Position Y</label>
+      <input
+        className="field-input"
+        type="number"
+        value={currentY}
+        onChange={(e) => onPositionChange(id, currentX, Number(e.target.value || 0))}
+      />
 
       {/* Preview chip */}
       <div

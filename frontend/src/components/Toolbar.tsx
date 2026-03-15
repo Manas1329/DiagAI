@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { NodeType, NODE_TYPES_LIST } from '../models/graphModel';
 
 interface ToolbarProps {
   canUndo:          boolean;
@@ -6,6 +7,11 @@ interface ToolbarProps {
   layoutDirection:  'TB' | 'LR';
   edgeTip:          'arrow' | 'none';
   onEdgeTipChange:  (tip: 'arrow' | 'none') => void;
+  selectedNodeCount: number;
+  bulkNodeType:     NodeType;
+  onBulkNodeTypeChange: (type: NodeType) => void;
+  onApplyBulkNodeType:  () => void;
+  onAlignSelectedMiddle: () => void;
   onAddNode:        () => void;
   onUndo:           () => void;
   onRedo:           () => void;
@@ -18,7 +24,10 @@ interface ToolbarProps {
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
-  canUndo, canRedo, layoutDirection, edgeTip, onEdgeTipChange, onAddNode,
+  canUndo, canRedo, layoutDirection, edgeTip, onEdgeTipChange,
+  selectedNodeCount, bulkNodeType, onBulkNodeTypeChange, onApplyBulkNodeType,
+  onAlignSelectedMiddle,
+  onAddNode,
   onUndo, onRedo, onLayoutChange, onFitView,
   onSave, onLoad, onExport, onClear,
 }) => {
@@ -77,6 +86,34 @@ const Toolbar: React.FC<ToolbarProps> = ({
         <option value="arrow">Tip: Arrow</option>
         <option value="none">Tip: None</option>
       </select>
+
+      <select
+        className="btn-tool"
+        value={bulkNodeType}
+        onChange={(e) => onBulkNodeTypeChange(e.target.value as NodeType)}
+        title="Type for selected nodes"
+        style={{ minWidth: 130 }}
+      >
+        {NODE_TYPES_LIST.map((t) => (
+          <option key={t} value={t}>{`Selected -> ${t}`}</option>
+        ))}
+      </select>
+      <button
+        className="btn-tool"
+        onClick={onApplyBulkNodeType}
+        disabled={selectedNodeCount === 0}
+        title="Apply type to selected nodes"
+      >
+        Apply ({selectedNodeCount})
+      </button>
+      <button
+        className="btn-tool"
+        onClick={onAlignSelectedMiddle}
+        disabled={selectedNodeCount < 2}
+        title="Align selected nodes by vertical center"
+      >
+        Align Y Center
+      </button>
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />

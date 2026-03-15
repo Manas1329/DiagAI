@@ -9,6 +9,7 @@ import ReactFlow, {
   EdgeChange,
   Connection,
   ReactFlowInstance,
+  OnSelectionChangeParams,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import CustomNode from './CustomNode';
@@ -27,6 +28,7 @@ interface DiagramCanvasProps {
   onConnect:      (conn: Connection) => void;
   onNodeSelect:   (id: string | null) => void;
   onEdgeSelect:   (id: string | null) => void;
+  onSelectionChange?: (params: OnSelectionChangeParams) => void;
   onNodeDragStart?: (e: React.MouseEvent, node: Node) => void;
   onNodeDrag?:      (e: React.MouseEvent, node: Node) => void;
   onNodeDragStop?:  (e: React.MouseEvent, node: Node) => void;
@@ -42,6 +44,7 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
     onConnect,
     onNodeSelect,
     onEdgeSelect,
+    onSelectionChange,
     onNodeDragStart,
     onNodeDrag,
     onNodeDragStop,
@@ -63,6 +66,7 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
           onConnect={(conn) => {
             onConnect(conn);
           }}
+          onSelectionChange={onSelectionChange}
           onNodeDragStart={onNodeDragStart}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
@@ -89,7 +93,7 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
           fitViewOptions={{ padding: 0.2 }}
           deleteKeyCode="Delete"
           defaultEdgeOptions={{
-            type:      'smoothstep',
+            type:      'straight',
             style:     { stroke: '#64748b', strokeWidth: 2 },
             animated:  false,
             interactionWidth: 30,

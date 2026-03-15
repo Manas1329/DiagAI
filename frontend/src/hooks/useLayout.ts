@@ -1,9 +1,6 @@
 import dagre from 'dagre';
 import { Node, Edge } from 'reactflow';
 
-const NODE_W = 190;
-const NODE_H = 64;
-
 export function getLayoutedElements(
   nodes: Node[],
   edges: Edge[],
@@ -22,14 +19,29 @@ export function getLayoutedElements(
     marginy: 50,
   });
 
-  nodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
+  const sizeMap = new Map<string, { width: number; height: number }>();
+  nodes.forEach((n) => {
+    const width = Number((n.data?.boxWidth as number) ?? 180);
+    const height = Number((n.data?.boxHeight as number) ?? 72);
+    const safeWidth = Math.max(120, Math.min(420, Number.isFinite(width) ? width : 180));
+    const safeHeight = Math.max(48, Math.min(220, Number.isFinite(height) ? height : 72));
+    sizeMap.set(n.id, { width: safeWidth, height: safeHeight });
+    g.setNode(n.id, { width: safeWidth, height: safeHeight });
+  });
   edges.forEach((e) => g.setEdge(e.source, e.target));
 
   dagre.layout(g);
 
   const layoutedNodes = nodes.map((n) => {
     const pos = g.node(n.id);
-    return { ...n, position: { x: pos.x - NODE_W / 2, y: pos.y - NODE_H / 2 } };
+    const size = sizeMap.get(n.id) ?? { width: 180, height: 72 };
+    return {
+      ...n,
+      position: {
+        x: Math.round(pos.x - size.width / 2),
+        y: Math.round(pos.y - size.height / 2),
+      },
+    };
   });
 
   return { nodes: layoutedNodes, edges };

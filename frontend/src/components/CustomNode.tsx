@@ -35,8 +35,9 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
         color:        colors.text,
         borderRadius,
         width:        `${boxWidth}px`,
-        minHeight:    `${boxHeight}px`,
+        height:       `${boxHeight}px`,
         padding:      '10px 14px',
+        boxSizing:    'border-box',
         boxShadow:    selected
           ? '0 0 0 3px rgba(99,102,241,0.35), 0 4px 14px rgba(0,0,0,0.18)'
           : '0 2px 8px rgba(0,0,0,0.10)',
@@ -62,9 +63,18 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
       />
 
       {/* Node body */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 4,
+          height: '100%',
+        }}
+      >
         {/* Icon + Label row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, width: '100%' }}>
           {!isNoneType && (
             <span role="img" aria-label={data.nodeType} style={{ fontSize: 16, flexShrink: 0 }}>
               {colors.icon}
@@ -77,6 +87,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
               textAlign:  'center',
               lineHeight: 1.35,
               wordBreak:  'break-word',
+              maxWidth:   '100%',
             }}
           >
             {data.label}

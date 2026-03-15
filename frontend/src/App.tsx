@@ -9,6 +9,7 @@ import {
   Edge,
   MarkerType,
   ReactFlowInstance,
+  OnSelectionChangeParams,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -27,15 +28,92 @@ type EdgeTipStyle = 'arrow' | 'none';
 type EdgeLineType = 'smoothstep' | 'straight' | 'step' | 'bezier';
 type AnchorSide = 'auto' | 'top' | 'right' | 'bottom' | 'left';
 
+function getNodeSize(node: Node) {
+  const width = Number((node.data?.boxWidth as number) ?? node.width ?? 180);
+  const height = Number((node.data?.boxHeight as number) ?? node.height ?? 72);
+  return { width, height };
+}
+
 function markerForTip(tip: EdgeTipStyle) {
   if (tip === 'none') return undefined;
   return { type: MarkerType.ArrowClosed, color: '#64748b', width: 18, height: 18 };
 }
 
 function getNodeCenter(node: Node) {
-  const w = Number((node.data?.boxWidth as number) ?? node.width ?? 180);
-  const h = Number((node.data?.boxHeight as number) ?? node.height ?? 72);
+  const { width: w, height: h } = getNodeSize(node);
   return { x: node.position.x + w / 2, y: node.position.y + h / 2 };
+}
+
+function closestHandlesForPair(source: Node, target: Node) {
+  const a = getNodeCenter(source);
+  const b = getNodeCenter(target);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0
+      ? { sourceHandle: 'source-right', targetHandle: 'target-left' }
+      : { sourceHandle: 'source-left', targetHandle: 'target-right' };
+  }
+
+  return dy >= 0
+    ? { sourceHandle: 'source-bottom', targetHandle: 'target-top' }
+    : { sourceHandle: 'source-top', targetHandle: 'target-bottom' };
+}
+
+function withClosestAnchors(es: Edge[], ns: Node[]): Edge[] {
+  return es.map((e) => {
+    const src = ns.find((n) => n.id === e.source);
+    const tgt = ns.find((n) => n.id === e.target);
+    if (!src || !tgt) return e;
+    const pair = closestHandlesForPair(src, tgt);
+    return { ...e, sourceHandle: pair.sourceHandle, targetHandle: pair.targetHandle };
+  });
+}
+
+function withHierarchicalAnchors(es: Edge[], ns: Node[]): Edge[] {
+  return es.map((e) => {
+    const src = ns.find((n) => n.id === e.source);
+    const tgt = ns.find((n) => n.id === e.target);
+    if (!src || !tgt) return e;
+
+    const s = getNodeCenter(src);
+    const t = getNodeCenter(tgt);
+
+    // Keep child connection entering from top. If visually reversed, flip anchors.
+    if (t.y >= s.y) {
+      return { ...e, sourceHandle: 'source-bottom', targetHandle: 'target-top' };
+    }
+    return { ...e, sourceHandle: 'source-top', targetHandle: 'target-bottom' };
+  });
+}
+
+function withVerticalPreferredAnchors(es: Edge[], ns: Node[]): Edge[] {
+  return es.map((e) => {
+    const src = ns.find((n) => n.id === e.source);
+    const tgt = ns.find((n) => n.id === e.target);
+    if (!src || !tgt) return e;
+
+    const s = getNodeCenter(src);
+    const t = getNodeCenter(tgt);
+    const dx = t.x - s.x;
+    const dy = t.y - s.y;
+
+    // Vertical flow preference: top/bottom anchors for mostly vertical relationships.
+    // If relation is strongly lateral, fall back to closest handles.
+    if (Math.abs(dy) >= Math.abs(dx)) {
+      if (dy >= 0) return { ...e, sourceHandle: 'source-bottom', targetHandle: 'target-top' };
+      return { ...e, sourceHandle: 'source-top', targetHandle: 'target-bottom' };
+    }
+
+    const closest = closestHandlesForPair(src, tgt);
+    return { ...e, sourceHandle: closest.sourceHandle, targetHandle: closest.targetHandle };
+  });
+}
+
+function applyAnchors(es: Edge[], ns: Node[], dir: 'TB' | 'LR'): Edge[] {
+  if (dir === 'LR') return withClosestAnchors(es, ns);
+  return withVerticalPreferredAnchors(es, ns);
 }
 
 function withEdgeLabelStyles(es: Edge[], ns: Node[]): Edge[] {
@@ -102,14 +180,15 @@ function modelToFlow(
     source:    e.source,
     target:    e.target,
     label:     e.label ?? '',
-    type:      'smoothstep',
+    type:      'straight',
     markerEnd: markerForTip(edgeTip),
     interactionWidth: 30,
     style:     { stroke: '#64748b', strokeWidth: 2 },
   }));
 
   const layouted = getLayoutedElements(rfNodes, rfEdges, dir);
-  return { nodes: layouted.nodes, edges: withEdgeLabelStyles(layouted.edges, layouted.nodes) };
+  const anchored = applyAnchors(layouted.edges, layouted.nodes, dir);
+  return { nodes: layouted.nodes, edges: withEdgeLabelStyles(anchored, layouted.nodes) };
 }
 
 // ─── App Inner (inside ReactFlowProvider) ─────────────────────────────────────
@@ -121,9 +200,11 @@ function AppInner() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
   const [selectedId,      setSelectedId]      = useState<string | null>(null);
   const [selectedEdgeId,  setSelectedEdgeId]  = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
   const [showExport,      setShowExport]      = useState(false);
   const [edgeTip,         setEdgeTip]         = useState<EdgeTipStyle>('arrow');
+  const [bulkNodeType,    setBulkNodeType]    = useState<NodeType>('process');
   const [instance,        setInstance]        = useState<ReactFlowInstance | null>(null);
 
   // Simple undo/redo state stack
@@ -195,9 +276,9 @@ function AppInner() {
       const next = addEdge(
         {
           ...conn,
-          type:      'smoothstep',
-          markerStart: undefined,
-          markerEnd: markerForTip(edgeTip),
+          type:      'straight',
+          markerStart: markerForTip('none'),
+          markerEnd: markerForTip('arrow'),
           label: '',
           interactionWidth: 30,
           style:     { stroke: '#64748b', strokeWidth: 2 },
@@ -208,7 +289,7 @@ function AppInner() {
       pushHistory(nodes, styled);
       return styled;
     });
-  }, [nodes, setEdges, pushHistory, edgeTip]);
+  }, [nodes, setEdges, pushHistory]);
 
   const onNodesChange = useCallback((changes: any) => {
     onNodesChangeBase(changes);
@@ -239,12 +320,49 @@ function AppInner() {
     dragAxisRef.current.delete(node.id);
   }, []);
 
+  const handleNodeDragSnap = useCallback((_e: React.MouseEvent, node: Node) => {
+    const self = nodes.find((n) => n.id === node.id);
+    if (!self) return;
+
+    const { height } = getNodeSize(self);
+    const selfMid = node.position.y + height / 2;
+    const threshold = 8;
+
+    let snappedY: number | null = null;
+    let best = Number.POSITIVE_INFINITY;
+
+    for (const other of nodes) {
+      if (other.id === node.id) continue;
+      const { height: oh } = getNodeSize(other);
+      const otherMid = other.position.y + oh / 2;
+
+      const dMid = Math.abs(otherMid - selfMid);
+      if (dMid < threshold && dMid < best) {
+        best = dMid;
+        snappedY = otherMid - height / 2;
+      }
+    }
+
+    if (snappedY == null) return;
+    setNodes((prev) => prev.map((n) => n.id === node.id
+      ? { ...n, position: { x: node.position.x, y: Math.round(snappedY!) } }
+      : n
+    ));
+  }, [nodes, setNodes]);
+
+  const handleSelectionChange = useCallback((params: OnSelectionChangeParams) => {
+    setSelectedNodeIds((params.nodes ?? []).map((n) => n.id));
+  }, []);
+
   // ── Layout ────────────────────────────────────────────────────────────────
   const handleLayoutChange = useCallback((dir: 'TB' | 'LR') => {
     setLayoutDirection(dir);
     const { nodes: ln, edges: le } = getLayoutedElements(nodes, edges, dir);
-    setNodes(ln); setEdges(le);
-    pushHistory(ln, le);
+    const straight = le.map((e) => ({ ...e, type: 'straight' as const }));
+    const anchored = applyAnchors(straight, ln, dir);
+    const styled = withEdgeLabelStyles(anchored, ln);
+    setNodes(ln); setEdges(styled);
+    pushHistory(ln, styled);
     setTimeout(() => canvasRef.current?.fitView(), 60);
   }, [nodes, edges, setNodes, setEdges, pushHistory]);
 
@@ -257,6 +375,41 @@ function AppInner() {
     setNodes((prev) =>
       prev.map((n) => n.id === id ? { ...n, data: { ...n.data, nodeType } } : n)
     );
+  }, [setNodes]);
+
+  const handleBulkNodeTypeApply = useCallback(() => {
+    if (selectedNodeIds.length === 0) return;
+    setNodes((prev) => prev.map((n) => selectedNodeIds.includes(n.id)
+      ? { ...n, data: { ...n.data, nodeType: bulkNodeType } }
+      : n
+    ));
+  }, [selectedNodeIds, bulkNodeType, setNodes]);
+
+  const handleAlignSelectedTop = useCallback(() => {
+    // Deprecated in favor of center alignment.
+  }, [selectedNodeIds, nodes, setNodes]);
+
+  const handleAlignSelectedMiddle = useCallback(() => {
+    if (selectedNodeIds.length < 2) return;
+    const selected = nodes.filter((n) => selectedNodeIds.includes(n.id));
+    if (selected.length < 2) return;
+
+    const centerAvg = selected
+      .map((n) => n.position.y + getNodeSize(n).height / 2)
+      .reduce((a, b) => a + b, 0) / selected.length;
+
+    setNodes((prev) => prev.map((n) => {
+      if (!selectedNodeIds.includes(n.id)) return n;
+      const h = getNodeSize(n).height;
+      return { ...n, position: { ...n.position, y: Math.round(centerAvg - h / 2) } };
+    }));
+  }, [selectedNodeIds, nodes, setNodes]);
+
+  const handlePositionChange = useCallback((id: string, x: number, y: number) => {
+    setNodes((prev) => prev.map((n) => n.id === id
+      ? { ...n, position: { x: Math.round(x), y: Math.round(y) } }
+      : n
+    ));
   }, [setNodes]);
 
   const handleDeleteNode = useCallback((id: string) => {
@@ -416,6 +569,11 @@ function AppInner() {
         layoutDirection={layoutDirection}
         edgeTip={edgeTip}
         onEdgeTipChange={handleEdgeTipChange}
+        selectedNodeCount={selectedNodeIds.length}
+        bulkNodeType={bulkNodeType}
+        onBulkNodeTypeChange={setBulkNodeType}
+        onApplyBulkNodeType={handleBulkNodeTypeApply}
+        onAlignSelectedMiddle={handleAlignSelectedMiddle}
         onAddNode={handleAddNode}
         onUndo={handleUndo}
         onRedo={handleRedo}
@@ -444,9 +602,13 @@ function AppInner() {
             onConnect={handleConnect}
             onNodeSelect={setSelectedId}
             onEdgeSelect={setSelectedEdgeId}
+            onSelectionChange={handleSelectionChange}
             onNodeDragStart={handleNodeDragStart}
             onNodeDrag={handleNodeDrag}
-            onNodeDragStop={handleNodeDragStop}
+            onNodeDragStop={(e, n) => {
+              handleNodeDragStop(e, n);
+              handleNodeDragSnap(e, n);
+            }}
             onInstanceReady={setInstance}
           />
           {showExport && <ExportMenu onClose={() => setShowExport(false)} />}
@@ -466,6 +628,7 @@ function AppInner() {
             node={selectedNode}
             onLabelChange={handleLabelChange}
             onTypeChange={handleTypeChange}
+            onPositionChange={handlePositionChange}
             onBoxColorChange={handleBoxColorChange}
             onShapeChange={handleShapeChange}
             onSizeChange={handleSizeChange}
