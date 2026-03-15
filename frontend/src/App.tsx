@@ -245,11 +245,11 @@ function withTreeDecisionAnchors(es: Edge[], ns: Node[]): Edge[] {
   return result;
 }
 
-function applyAnchors(es: Edge[], ns: Node[], dir: 'TB' | 'LR'): Edge[] {
+function applyAnchors(es: Edge[], ns: Node[], dir: 'TB' | 'LR', treeMode = false): Edge[] {
   const base = dir === 'LR' ? withClosestAnchors(es, ns) : withVerticalPreferredAnchors(es, ns);
   const spreadSource = distributeNodeHandles(base, dir, 'source');
   const spreadTarget = distributeNodeHandles(spreadSource, dir, 'target');
-  if (dir === 'LR') return spreadTarget;
+  if (dir === 'LR' || !treeMode) return spreadTarget;
   return withTreeDecisionAnchors(spreadTarget, ns);
 }
 
@@ -306,6 +306,7 @@ function modelToFlow(
   edgeTip: EdgeTipStyle
 ): { nodes: Node[]; edges: Edge[] } {
   const isAscii = String(model.metadata?.inputFormat ?? '') === 'ascii';
+  const isTree = String(model.metadata?.inputFormat ?? '') === 'tree';
 
   const asciiCols = isAscii
     ? model.nodes
@@ -367,12 +368,12 @@ function modelToFlow(
   }));
 
   if (isAscii) {
-    const anchoredAscii = applyAnchors(rfEdges, rfNodes, 'LR');
+    const anchoredAscii = applyAnchors(rfEdges, rfNodes, 'LR', false);
     return { nodes: rfNodes, edges: withEdgeLabelStyles(anchoredAscii, rfNodes) };
   }
 
   const layouted = getLayoutedElements(rfNodes, rfEdges, dir);
-  const anchored = applyAnchors(layouted.edges, layouted.nodes, dir);
+  const anchored = applyAnchors(layouted.edges, layouted.nodes, dir, isTree);
   return { nodes: layouted.nodes, edges: withEdgeLabelStyles(anchored, layouted.nodes) };
 }
 
@@ -419,8 +420,9 @@ function AppInner() {
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); handleUndo(); }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+      if ((e.ctrlKey || e.metaKey) && (key === 'y' || (e.shiftKey && key === 'z'))) {
         e.preventDefault(); handleRedo();
       }
     };
@@ -470,16 +472,39 @@ function AppInner() {
         },
         prev
       );
-      const anchored = applyAnchors(next, nodes, layoutDirection);
-      const styled = withEdgeLabelStyles(anchored, nodes);
+      const styled = withEdgeLabelStyles(next, nodes);
       pushHistory(nodes, styled);
       return styled;
     });
-  }, [nodes, setEdges, pushHistory, layoutDirection]);
+  }, [nodes, setEdges, pushHistory]);
 
   const onNodesChange = useCallback((changes: any) => {
     onNodesChangeBase(changes);
-  }, [onNodesChangeBase]);
+    const shouldSnapshot = Array.isArray(changes) && changes.some((c) =>
+      c?.type === 'add' ||
+      c?.type === 'remove' ||
+      (c?.type === 'position' && c?.dragging === false)
+    );
+    if (!shouldSnapshot) return;
+    setTimeout(() => {
+      const ns = instance?.getNodes() ?? nodes;
+      const es = instance?.getEdges() ?? edges;
+      pushHistory(ns, es);
+    }, 0);
+  }, [onNodesChangeBase, instance, nodes, edges, pushHistory]);
+
+  const onEdgesChangeTracked = useCallback((changes: any) => {
+    onEdgesChange(changes);
+    const shouldSnapshot = Array.isArray(changes) && changes.some((c) =>
+      c?.type === 'add' || c?.type === 'remove' || c?.type === 'replace'
+    );
+    if (!shouldSnapshot) return;
+    setTimeout(() => {
+      const ns = instance?.getNodes() ?? nodes;
+      const es = instance?.getEdges() ?? edges;
+      pushHistory(ns, es);
+    }, 0);
+  }, [onEdgesChange, instance, nodes, edges, pushHistory]);
 
   const handleNodeDragStart = useCallback((_e: React.MouseEvent, node: Node) => {
     dragAxisRef.current.set(node.id, { startX: node.position.x, startY: node.position.y, axis: null });
@@ -795,7 +820,7 @@ function AppInner() {
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
+            onEdgesChange={onEdgesChangeTracked}
             onConnect={handleConnect}
             onNodeSelect={setSelectedId}
             onEdgeSelect={setSelectedEdgeId}

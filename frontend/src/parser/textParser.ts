@@ -7,7 +7,7 @@ const NODE_TYPE_PATTERNS: Array<[NodeType, RegExp]> = [
   ['database',      /\b(database|db|storage|store|cache|redis|postgres|mysql|mongo|repository|data[\s-]?store|warehouse)\b/i],
   ['observability', /\b(log|monitor|observ|metric|alert|trace|audit|analytic|telemetry|siem|splunk)\b/i],
   ['security',      /\b(auth|authenticat|authoriz|rbac|acl|permission|jwt|oauth|crypto|encrypt|security|firewall|vpn|tls|ssl|mfa)\b/i],
-  ['decision',      /\b(decision|branch|condition|if|switch|gateway|check|router|validator|policy)\b/i],
+  ['decision',      /\b(decision|branch|condition|if|gateway|check|validator|policy|choose|select|option)\b/i],
   ['api',           /\b(api|rest|graphql|endpoint|gateway|webhook|http|grpc|route|proxy)\b/i],
   ['service',       /\b(service|module|component|handler|processor|worker|queue|bus|engine|pipeline|scheduler)\b/i],
 ];
@@ -42,6 +42,7 @@ export function detectFormat(text: string): InputFormat {
   const trimmed = text.trim();
   if (/^@startuml/i.test(trimmed)) return 'plantuml';
   if (/^(flowchart|graph)\s+(TD|LR|TB|RL|BT)\b/i.test(trimmed)) return 'mermaid';
+  if (/^\s*\|\s*--/m.test(text) || /^\s*\|\s*$/m.test(text)) return 'tree';
   if (/(?:─{2,}|-{2,})/.test(text) && /[│|└┘┌┐]/.test(text)) return 'ascii';
   if (/[├└│]/m.test(text)) return 'tree';
   if (/\n\s*[↓↑→←⬇⬆➡⬅▼▲►◄]\s*\n/.test(text)) return 'vertical';
@@ -123,6 +124,7 @@ function parseTree(text: string): GraphModel {
   let pendingConnector = false;
   let pendingDown = false;
   let lastNode: DiagNode | null = null;
+  let lastLevel = 0;
 
   const getOrCreate = (label: string): DiagNode => {
     const existing = Array.from(nodeMap.values()).find((n) => n.label === label);
@@ -206,7 +208,7 @@ function parseTree(text: string): GraphModel {
     }
 
     // Vertical down arrows should connect from the previous concrete node.
-    if (pendingConnector && lastNode) {
+    if (pendingConnector && lastNode && level >= lastLevel) {
       addEdge(lastNode.id, firstNode.id, pendingDown);
     } else if (parent) {
       addEdge(parent.id, firstNode.id, false);
@@ -224,6 +226,7 @@ function parseTree(text: string): GraphModel {
     pendingConnector = false;
     pendingDown = false;
     lastNode = prev;
+    lastLevel = level;
   }
 
   return { nodes: Array.from(nodeMap.values()), edges };
@@ -537,12 +540,29 @@ export function parseText(text: string): GraphModel {
   for (const e of model.edges) {
     incoming.set(e.target, (incoming.get(e.target) ?? 0) + 1);
   }
+  const children = new Map<string, string[]>();
+  for (const e of model.edges) {
+    const target = model.nodes.find((n) => n.id === e.target)?.label ?? '';
+    const arr = children.get(e.source) ?? [];
+    arr.push(target.toLowerCase());
+    children.set(e.source, arr);
+  }
+
+  const choiceWord = /\b(choose|select|option|decision|branch|condition|if|validate|check|approve|reject|success|error|retry|valid|invalid|login|register|exit)\b/i;
 
   const nodes = model.nodes.map((n) => {
-    if (n.type === 'process' && ((outDegree.get(n.id) ?? 0) > 1 || (incoming.get(n.id) ?? 0) > 1)) {
+    if (n.type !== 'process') return n;
+
+    const out = outDegree.get(n.id) ?? 0;
+    if (out < 2) return n;
+
+    const labelSuggestsDecision = choiceWord.test(n.label);
+    const childSuggestsDecision = (children.get(n.id) ?? []).some((label) => choiceWord.test(label));
+    if (labelSuggestsDecision || childSuggestsDecision) {
       return { ...n, type: 'decision' as NodeType };
     }
-    return n;
+
+    return { ...n, type: 'none' as NodeType };
   });
 
   return {

@@ -1,6 +1,7 @@
 import React, { useRef, forwardRef, useImperativeHandle } from 'react';
 import ReactFlow, {
   Background,
+  ConnectionMode,
   Controls,
   MiniMap,
   Node,
@@ -92,6 +93,7 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, DiagramCanvasProps>(
           fitView
           fitViewOptions={{ padding: 0.2 }}
           deleteKeyCode="Delete"
+          connectionMode={ConnectionMode.Loose}
           defaultEdgeOptions={{
             type:      'straight',
             style:     { stroke: '#64748b', strokeWidth: 2 },
