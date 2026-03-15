@@ -88,6 +88,85 @@ function withHierarchicalAnchors(es: Edge[], ns: Node[]): Edge[] {
   });
 }
 
+type Side = 'top' | 'right' | 'bottom' | 'left';
+
+function extractSide(handle: string | null | undefined, fallback: Side): Side {
+  if (!handle) return fallback;
+  if (handle.endsWith('top')) return 'top';
+  if (handle.endsWith('right')) return 'right';
+  if (handle.endsWith('bottom')) return 'bottom';
+  if (handle.endsWith('left')) return 'left';
+  return fallback;
+}
+
+function buildHandle(end: 'source' | 'target', side: Side): string {
+  return `${end}-${side}`;
+}
+
+function sidePriority(side: Side): Side[] {
+  switch (side) {
+    case 'top': return ['top', 'right', 'left', 'bottom'];
+    case 'right': return ['right', 'bottom', 'top', 'left'];
+    case 'bottom': return ['bottom', 'right', 'left', 'top'];
+    case 'left': return ['left', 'bottom', 'top', 'right'];
+    default: return ['right', 'bottom', 'top', 'left'];
+  }
+}
+
+function distributeNodeHandles(
+  edges: Edge[],
+  dir: 'TB' | 'LR',
+  end: 'source' | 'target'
+): Edge[] {
+  const key = end === 'source' ? 'source' : 'target';
+  const fallback: Side = end === 'source'
+    ? (dir === 'TB' ? 'bottom' : 'right')
+    : (dir === 'TB' ? 'top' : 'left');
+
+  const grouped = new Map<string, Edge[]>();
+  for (const e of edges) {
+    const nodeId = e[key] as string;
+    const arr = grouped.get(nodeId) ?? [];
+    arr.push(e);
+    grouped.set(nodeId, arr);
+  }
+
+  const result = edges.map((e) => ({ ...e }));
+  const indexById = new Map<string, number>();
+  result.forEach((e, i) => indexById.set(e.id, i));
+
+  for (const [, nodeEdges] of grouped) {
+    if (nodeEdges.length <= 1) continue;
+
+    const preferred = nodeEdges.map((e) => {
+      const h = end === 'source' ? e.sourceHandle : e.targetHandle;
+      return extractSide(h, fallback);
+    });
+
+    const used = new Set<Side>();
+    for (let i = 0; i < nodeEdges.length; i++) {
+      const e = nodeEdges[i];
+      const pref = preferred[i];
+      let assigned: Side | null = null;
+      for (const s of sidePriority(pref)) {
+        if (!used.has(s)) {
+          assigned = s;
+          used.add(s);
+          break;
+        }
+      }
+      if (!assigned) assigned = pref;
+
+      const idx = indexById.get(e.id);
+      if (idx == null) continue;
+      if (end === 'source') result[idx].sourceHandle = buildHandle('source', assigned);
+      else result[idx].targetHandle = buildHandle('target', assigned);
+    }
+  }
+
+  return result;
+}
+
 function withVerticalPreferredAnchors(es: Edge[], ns: Node[]): Edge[] {
   return es.map((e) => {
     const src = ns.find((n) => n.id === e.source);
@@ -103,7 +182,13 @@ function withVerticalPreferredAnchors(es: Edge[], ns: Node[]): Edge[] {
     // If relation is strongly lateral, fall back to closest handles.
     if (Math.abs(dy) >= Math.abs(dx)) {
       if (dy >= 0) return { ...e, sourceHandle: 'source-bottom', targetHandle: 'target-top' };
-      return { ...e, sourceHandle: 'source-top', targetHandle: 'target-bottom' };
+      const loopbackSide: Side = s.x >= t.x ? 'right' : 'left';
+      return {
+        ...e,
+        sourceHandle: buildHandle('source', loopbackSide),
+        targetHandle: buildHandle('target', loopbackSide),
+        type: 'step',
+      };
     }
 
     const closest = closestHandlesForPair(src, tgt);
@@ -111,9 +196,61 @@ function withVerticalPreferredAnchors(es: Edge[], ns: Node[]): Edge[] {
   });
 }
 
+function withTreeDecisionAnchors(es: Edge[], ns: Node[]): Edge[] {
+  const result = es.map((e) => ({ ...e }));
+  const indexById = new Map<string, number>();
+  result.forEach((e, i) => indexById.set(e.id, i));
+  const centers = new Map(ns.map((n) => [n.id, getNodeCenter(n)]));
+
+  const childSidesForCount = (count: number): Side[] => {
+    if (count <= 1) return ['bottom'];
+    if (count === 2) return ['left', 'right'];
+    if (count === 3) return ['left', 'bottom', 'right'];
+    return ['left', 'bottom', 'right', ...Array.from({ length: count - 3 }, (): Side => 'bottom')];
+  };
+
+  const grouped = new Map<string, Edge[]>();
+  for (const edge of result) {
+    const sourceCenter = centers.get(edge.source);
+    const targetCenter = centers.get(edge.target);
+    if (!sourceCenter || !targetCenter) continue;
+    if (targetCenter.y <= sourceCenter.y + 4) continue;
+    const bucket = grouped.get(edge.source) ?? [];
+    bucket.push(edge);
+    grouped.set(edge.source, bucket);
+  }
+
+  for (const [, group] of grouped) {
+    if (group.length < 2) continue;
+    const ordered = [...group].sort((left, right) => {
+      const leftCenter = centers.get(left.target);
+      const rightCenter = centers.get(right.target);
+      return (leftCenter?.x ?? 0) - (rightCenter?.x ?? 0);
+    });
+    const sides = childSidesForCount(ordered.length);
+
+    ordered.forEach((edge, index) => {
+      const edgeIndex = indexById.get(edge.id);
+      if (edgeIndex == null) return;
+      const side = sides[index] ?? 'bottom';
+      result[edgeIndex] = {
+        ...result[edgeIndex],
+        sourceHandle: buildHandle('source', side),
+        targetHandle: 'target-top',
+        type: 'step',
+      };
+    });
+  }
+
+  return result;
+}
+
 function applyAnchors(es: Edge[], ns: Node[], dir: 'TB' | 'LR'): Edge[] {
-  if (dir === 'LR') return withClosestAnchors(es, ns);
-  return withVerticalPreferredAnchors(es, ns);
+  const base = dir === 'LR' ? withClosestAnchors(es, ns) : withVerticalPreferredAnchors(es, ns);
+  const spreadSource = distributeNodeHandles(base, dir, 'source');
+  const spreadTarget = distributeNodeHandles(spreadSource, dir, 'target');
+  if (dir === 'LR') return spreadTarget;
+  return withTreeDecisionAnchors(spreadTarget, ns);
 }
 
 function withEdgeLabelStyles(es: Edge[], ns: Node[]): Edge[] {
@@ -168,11 +305,54 @@ function modelToFlow(
   dir: 'TB' | 'LR',
   edgeTip: EdgeTipStyle
 ): { nodes: Node[]; edges: Edge[] } {
+  const isAscii = String(model.metadata?.inputFormat ?? '') === 'ascii';
+
+  const asciiCols = isAscii
+    ? model.nodes
+      .map((n) => Number((n.metadata as any)?.asciiCol))
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b)
+    : [];
+  const asciiRows = isAscii
+    ? model.nodes
+      .map((n) => Number((n.metadata as any)?.asciiRow))
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b)
+    : [];
+
+  const minPositiveDelta = (vals: number[]) => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 1; i < vals.length; i++) {
+      const d = vals[i] - vals[i - 1];
+      if (d > 0 && d < best) best = d;
+    }
+    return Number.isFinite(best) ? best : 1;
+  };
+
+  const minColDelta = minPositiveDelta(asciiCols);
+  const minRowDelta = minPositiveDelta(asciiRows);
+
+  // Adaptive spacing: keep ASCII structure, but avoid compact overlap.
+  const colScale = isAscii
+    ? Math.max(28, Math.min(72, (180 + 42) / Math.max(1, minColDelta)))
+    : 0;
+  const rowScale = isAscii
+    ? Math.max(48, Math.min(110, (72 + 44) / Math.max(1, minRowDelta)))
+    : 0;
+
+  const asciiMinCol = asciiCols.length ? asciiCols[0] : 0;
+  const asciiMinRow = asciiRows.length ? asciiRows[0] : 0;
+
   const rfNodes: Node[] = model.nodes.map((n) => ({
     id:       n.id,
     type:     'custom',
     data:     { id: n.id, label: n.label, nodeType: n.type },
-    position: { x: 0, y: 0 },
+    position: isAscii
+      ? {
+          x: Math.round((Number((n.metadata as any)?.asciiCol ?? 0) - asciiMinCol) * colScale + 60),
+          y: Math.round((Number((n.metadata as any)?.asciiRow ?? 0) - asciiMinRow) * rowScale + 60),
+        }
+      : { x: 0, y: 0 },
   }));
 
   const rfEdges: Edge[] = model.edges.map((e) => ({
@@ -181,10 +361,15 @@ function modelToFlow(
     target:    e.target,
     label:     e.label ?? '',
     type:      'straight',
-    markerEnd: markerForTip(edgeTip),
+    markerEnd: markerForTip(e.hasArrow == null ? edgeTip : (e.hasArrow ? 'arrow' : 'none')),
     interactionWidth: 30,
     style:     { stroke: '#64748b', strokeWidth: 2 },
   }));
+
+  if (isAscii) {
+    const anchoredAscii = applyAnchors(rfEdges, rfNodes, 'LR');
+    return { nodes: rfNodes, edges: withEdgeLabelStyles(anchoredAscii, rfNodes) };
+  }
 
   const layouted = getLayoutedElements(rfNodes, rfEdges, dir);
   const anchored = applyAnchors(layouted.edges, layouted.nodes, dir);
@@ -285,11 +470,12 @@ function AppInner() {
         },
         prev
       );
-      const styled = withEdgeLabelStyles(next, nodes);
+      const anchored = applyAnchors(next, nodes, layoutDirection);
+      const styled = withEdgeLabelStyles(anchored, nodes);
       pushHistory(nodes, styled);
       return styled;
     });
-  }, [nodes, setEdges, pushHistory]);
+  }, [nodes, setEdges, pushHistory, layoutDirection]);
 
   const onNodesChange = useCallback((changes: any) => {
     onNodesChangeBase(changes);
@@ -496,6 +682,17 @@ function AppInner() {
     }));
   }, [setEdges]);
 
+  const handleReverseEdgeTips = useCallback((id: string) => {
+    setEdges((prev) => prev.map((e) => {
+      if (e.id !== id) return e;
+      return {
+        ...e,
+        markerStart: e.markerEnd,
+        markerEnd: e.markerStart,
+      };
+    }));
+  }, [setEdges]);
+
   const sideToHandle = (end: 'source' | 'target', side: AnchorSide): string | undefined => {
     if (side === 'auto') return undefined;
     return `${end}-${side}`;
@@ -619,6 +816,7 @@ function AppInner() {
             edge={selectedEdge}
             onDelete={handleDeleteEdge}
             onTipChange={handleEdgeEndTipChange}
+            onReverseTips={handleReverseEdgeTips}
             onTypeChange={handleEdgeTypeChange}
             onAnchorChange={handleEdgeAnchorChange}
             onLabelChange={handleEdgeLabelChange}

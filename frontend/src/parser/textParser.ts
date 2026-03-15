@@ -58,6 +58,27 @@ function splitChain(line: string): string[] {
     .filter(Boolean);
 }
 
+function splitChainWithConnectors(line: string): { parts: string[]; connectors: string[] } {
+  const connRe = /\s*(->|-->|=>|→|─{2,})\s*/g;
+  const parts: string[] = [];
+  const connectors: string[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = connRe.exec(line)) !== null) {
+    parts.push(line.slice(last, m.index).trim());
+    connectors.push(m[1]);
+    last = connRe.lastIndex;
+  }
+
+  parts.push(line.slice(last).trim());
+  return { parts: parts.filter(Boolean), connectors };
+}
+
+function connectorHasArrow(connector: string): boolean {
+  return /->|-->|=>|→/.test(connector);
+}
+
 // ─── Parser implementations ───────────────────────────────────────────────────
 
 /** Parses `A -> B -> C` style input (inline or multi-line). */
@@ -77,14 +98,15 @@ function parseArrow(text: string): GraphModel {
   for (const rawLine of text.split('\n')) {
     const line = rawLine.trim();
     if (!line) continue;
-    const parts = splitChain(line);
+    const { parts, connectors } = splitChainWithConnectors(line);
     if (parts.length < 2) continue;
     for (let i = 0; i < parts.length - 1; i++) {
       const src = getOrCreate(parts[i]);
       const tgt = getOrCreate(parts[i + 1]);
       const edgeId = `e_${src.id}_${tgt.id}`;
+      const hasArrow = connectorHasArrow(connectors[i] ?? '->');
       if (!edges.find((e) => e.id === edgeId)) {
-        edges.push({ id: edgeId, source: src.id, target: tgt.id });
+        edges.push({ id: edgeId, source: src.id, target: tgt.id, hasArrow });
       }
     }
   }
@@ -98,6 +120,7 @@ function parseTree(text: string): GraphModel {
   const edges: DiagEdge[] = [];
   const stack: Array<DiagNode | null> = [];
   let counter = 0;
+  let pendingConnector = false;
   let pendingDown = false;
   let lastNode: DiagNode | null = null;
 
@@ -109,10 +132,10 @@ function parseTree(text: string): GraphModel {
     return node;
   };
 
-  const addEdge = (source: string, target: string) => {
+  const addEdge = (source: string, target: string, hasArrow = false) => {
     if (source === target) return;
     const id = `e_${source}_${target}`;
-    if (!edges.some((e) => e.id === id)) edges.push({ id, source, target });
+    if (!edges.some((e) => e.id === id)) edges.push({ id, source, target, hasArrow });
   };
 
   const getIndentLevel = (raw: string): number => {
@@ -157,6 +180,7 @@ function parseTree(text: string): GraphModel {
     const trimmed = rawLine.trim();
 
     if (/^[↓↑→←⬇⬆➡⬅▼▲►◄|│\s-]+$/.test(trimmed) && !/[A-Za-z0-9]/.test(trimmed)) {
+      pendingConnector = true;
       if (/[↓⬇]/.test(trimmed)) pendingDown = true;
       continue;
     }
@@ -165,7 +189,7 @@ function parseTree(text: string): GraphModel {
     let content = cleanContent(rawLine);
     if (!content) continue;
 
-    const parts = splitChain(content);
+    const { parts, connectors } = splitChainWithConnectors(content);
     if (parts.length === 0) continue;
 
     const firstNode = getOrCreate(parts[0]);
@@ -182,21 +206,22 @@ function parseTree(text: string): GraphModel {
     }
 
     // Vertical down arrows should connect from the previous concrete node.
-    if (pendingDown && lastNode) {
-      addEdge(lastNode.id, firstNode.id);
+    if (pendingConnector && lastNode) {
+      addEdge(lastNode.id, firstNode.id, pendingDown);
     } else if (parent) {
-      addEdge(parent.id, firstNode.id);
+      addEdge(parent.id, firstNode.id, false);
     }
 
     let prev = firstNode;
     for (let i = 1; i < parts.length; i++) {
       const next = getOrCreate(parts[i]);
-      addEdge(prev.id, next.id);
+      addEdge(prev.id, next.id, connectorHasArrow(connectors[i - 1] ?? '->'));
       prev = next;
     }
 
     stack[level] = prev;
     stack.length = level + 1;
+    pendingConnector = false;
     pendingDown = false;
     lastNode = prev;
   }
@@ -212,19 +237,33 @@ function parseAscii(text: string): GraphModel {
   const edges: DiagEdge[] = [];
   let counter = 0;
 
-  const getOrCreate = (label: string): DiagNode => {
+  const getOrCreate = (label: string, row?: number, col?: number): DiagNode => {
     const clean = label.trim();
     const existing = Array.from(nodeMap.values()).find((n) => n.label === clean);
-    if (existing) return existing;
-    const node: DiagNode = { id: makeId(clean, counter++), label: clean, type: detectNodeType(clean) };
+    if (existing) {
+      if (row != null && col != null) {
+        existing.metadata = {
+          ...(existing.metadata ?? {}),
+          asciiRow: Math.min(Number((existing.metadata as any)?.asciiRow ?? row), row),
+          asciiCol: Math.min(Number((existing.metadata as any)?.asciiCol ?? col), col),
+        };
+      }
+      return existing;
+    }
+    const node: DiagNode = {
+      id: makeId(clean, counter++),
+      label: clean,
+      type: detectNodeType(clean),
+      metadata: row != null && col != null ? { asciiRow: row, asciiCol: col } : undefined,
+    };
     nodeMap.set(node.id, node);
     return node;
   };
 
-  const addEdge = (source: DiagNode, target: DiagNode) => {
+  const addEdge = (source: DiagNode, target: DiagNode, hasArrow = false) => {
     if (source.id === target.id) return;
     const id = `e_${source.id}_${target.id}`;
-    if (!edges.some((e) => e.id === id)) edges.push({ id, source: source.id, target: target.id });
+    if (!edges.some((e) => e.id === id)) edges.push({ id, source: source.id, target: target.id, hasArrow });
   };
 
   const TOKEN_RE = /[A-Za-z0-9][A-Za-z0-9_./()]*?(?:\s+[A-Za-z0-9][A-Za-z0-9_./()]*)*(?=\s*(?:[─\-|│←→↑↓]|$))/g;
@@ -237,7 +276,7 @@ function parseAscii(text: string): GraphModel {
       const start = match.index;
       const end = start + label.length;
       const center = Math.floor((start + end) / 2);
-      const node = getOrCreate(label);
+      const node = getOrCreate(label, row, center);
       nodesWithPos.push({ node, row, start, end, center });
     }
   });
@@ -256,8 +295,9 @@ function parseAscii(text: string): GraphModel {
       const right = arr[i + 1];
       const segment = lines[left.row].slice(left.end, right.start);
       if (!/[─\-=→←]/.test(segment)) continue;
-      if (/←/.test(segment) && !/→/.test(segment)) addEdge(right.node, left.node);
-      else addEdge(left.node, right.node);
+      const hasArrow = /[←→<>]/.test(segment);
+      if (/←/.test(segment) && !/→/.test(segment)) addEdge(right.node, left.node, hasArrow);
+      else addEdge(left.node, right.node, hasArrow);
     }
   }
 
@@ -283,8 +323,8 @@ function parseAscii(text: string): GraphModel {
     }
 
     if (!hasVertical) continue;
-    if (sawUp && !sawDown) addEdge(lower.node, top.node);
-    else addEdge(top.node, lower.node);
+    if (sawUp && !sawDown) addEdge(lower.node, top.node, sawUp || sawDown);
+    else addEdge(top.node, lower.node, sawUp || sawDown);
   }
 
   // Loopback pattern: arrow hint line + "└── Improve ──┘" line.
@@ -294,7 +334,9 @@ function parseAscii(text: string): GraphModel {
 
     const labelMatch = line.match(TOKEN_RE);
     if (!labelMatch || labelMatch.length !== 1) continue;
-    const loop = getOrCreate(labelMatch[0]);
+    const loopLabel = labelMatch[0];
+    const col = line.indexOf(loopLabel) + Math.floor(loopLabel.length / 2);
+    const loop = getOrCreate(loopLabel, r, Math.max(0, col));
 
     const arrowLine = lines[r - 1] ?? '';
     const upCol = arrowLine.indexOf('↑');
@@ -312,8 +354,8 @@ function parseAscii(text: string): GraphModel {
     const upNode = upCol >= 0 ? nearestAbove(upCol) : undefined;
     const downNode = downCol >= 0 ? nearestAbove(downCol) : undefined;
 
-    if (downNode) addEdge(downNode, loop);
-    if (upNode) addEdge(loop, upNode);
+    if (downNode) addEdge(downNode, loop, true);
+    if (upNode) addEdge(loop, upNode, true);
   }
 
   return { nodes: Array.from(nodeMap.values()), edges };
@@ -325,12 +367,21 @@ function parseVertical(text: string): GraphModel {
   const nodes: DiagNode[] = [];
   const edges: DiagEdge[] = [];
   const ARROW_RE = /^[↓↑→←⬇⬆➡⬅▼▲►◄]$|^(->|-->|=>)$/;
+  const CONNECTOR_RE = /^[↓↑→←⬇⬆➡⬅▼▲►◄|│\s-]+$/;
 
   let counter = 0;
   let prevNode: DiagNode | null = null;
+  let pendingArrow = false;
 
   for (const line of lines) {
-    if (ARROW_RE.test(line)) continue; // skip standalone arrow lines
+    if (ARROW_RE.test(line)) {
+      pendingArrow = true;
+      continue;
+    }
+    if (CONNECTOR_RE.test(line) && !/[A-Za-z0-9]/.test(line)) {
+      pendingArrow = pendingArrow || /[↓↑→←⬇⬆➡⬅▼▲►◄]/.test(line);
+      continue;
+    }
 
     // Deduplicate nodes with same label
     let node = nodes.find((n) => n.label === line) ?? null;
@@ -341,10 +392,11 @@ function parseVertical(text: string): GraphModel {
     if (prevNode && prevNode.id !== node.id) {
       const edgeId = `e_${prevNode.id}_${node.id}`;
       if (!edges.find((e) => e.id === edgeId)) {
-        edges.push({ id: edgeId, source: prevNode.id, target: node.id });
+        edges.push({ id: edgeId, source: prevNode.id, target: node.id, hasArrow: pendingArrow });
       }
     }
     prevNode = node;
+    pendingArrow = false;
   }
 
   return { nodes, edges };
@@ -416,6 +468,7 @@ function parseMermaid(text: string): GraphModel {
         source: src.id,
         target: tgt.id,
         label: edgeLabel?.trim(),
+        hasArrow: true,
       });
       continue;
     }
@@ -476,9 +529,25 @@ export function parseText(text: string): GraphModel {
   })();
 
   const model = deduplicateNodeIds(raw);
+  const outDegree = new Map<string, number>();
+  for (const e of model.edges) {
+    outDegree.set(e.source, (outDegree.get(e.source) ?? 0) + 1);
+  }
+  const incoming = new Map<string, number>();
+  for (const e of model.edges) {
+    incoming.set(e.target, (incoming.get(e.target) ?? 0) + 1);
+  }
+
+  const nodes = model.nodes.map((n) => {
+    if (n.type === 'process' && ((outDegree.get(n.id) ?? 0) > 1 || (incoming.get(n.id) ?? 0) > 1)) {
+      return { ...n, type: 'decision' as NodeType };
+    }
+    return n;
+  });
 
   return {
     ...model,
+    nodes,
     metadata: {
       createdAt: new Date().toISOString(),
       layoutDirection: 'TB',

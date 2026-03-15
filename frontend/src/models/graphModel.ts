@@ -24,6 +24,7 @@ export interface DiagEdge {
   source: string;
   target: string;
   label?: string;
+  hasArrow?: boolean;
   direction?: 'forward' | 'backward' | 'bidirectional';
   edgeType?: string;
 }

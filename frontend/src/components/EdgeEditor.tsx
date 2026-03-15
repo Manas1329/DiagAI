@@ -10,6 +10,7 @@ interface EdgeEditorProps {
   edge: Edge | null;
   onDelete: (id: string) => void;
   onTipChange: (id: string, end: 'start' | 'end', tip: TipStyle) => void;
+  onReverseTips: (id: string) => void;
   onTypeChange: (id: string, edgeType: EdgeLineType) => void;
   onAnchorChange: (id: string, end: 'source' | 'target', side: AnchorSide) => void;
   onLabelChange: (id: string, label: string) => void;
@@ -32,7 +33,7 @@ function handleToSide(handleId: string | null | undefined, end: 'source' | 'targ
   return 'auto';
 }
 
-const EdgeEditor: React.FC<EdgeEditorProps> = ({ edge, onDelete, onTipChange, onTypeChange, onAnchorChange, onLabelChange }) => {
+const EdgeEditor: React.FC<EdgeEditorProps> = ({ edge, onDelete, onTipChange, onReverseTips, onTypeChange, onAnchorChange, onLabelChange }) => {
   if (!edge) {
     return (
       <div className="right-panel">
@@ -94,6 +95,24 @@ const EdgeEditor: React.FC<EdgeEditorProps> = ({ edge, onDelete, onTipChange, on
         <option value="arrow">Arrow</option>
         <option value="none">None</option>
       </select>
+
+      <button
+        onClick={() => onReverseTips(edge.id)}
+        style={{
+          marginTop: 12,
+          width: '100%',
+          background: '#eff6ff',
+          border: '1.5px solid #93c5fd',
+          color: '#1d4ed8',
+          borderRadius: 7,
+          padding: '7px 0',
+          cursor: 'pointer',
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+      >
+        Reverse Tips
+      </button>
 
       <label className="field-label" style={{ marginTop: 14 }}>Source Anchor</label>
       <select
