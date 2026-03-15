@@ -381,7 +381,58 @@ function modelToFlow(
 
   if (isAscii) {
     const anchoredAscii = applyAnchors(rfEdges, rfNodes, 'LR', false);
-    return { nodes: rfNodes, edges: withEdgeLabelStyles(anchoredAscii, rfNodes) };
+    const routedAscii = anchoredAscii.map((edge) => {
+      const src = rfNodes.find((n) => n.id === edge.source);
+      const tgt = rfNodes.find((n) => n.id === edge.target);
+      if (!src || !tgt) return edge;
+
+      const s = getNodeCenter(src);
+      const t = getNodeCenter(tgt);
+      const isBackward = t.x < s.x - 8;
+      const isBent = Math.abs(t.y - s.y) > 20;
+      if (isBackward || isBent) {
+        const dx = t.x - s.x;
+        const prefersSide = Math.abs(dx) > 36;
+
+        if (prefersSide) {
+          const sourceSide = dx >= 0 ? 'source-right' : 'source-left';
+          const targetSide = dx >= 0 ? 'target-left' : 'target-right';
+          return {
+            ...edge,
+            type: 'step',
+            sourceHandle: sourceSide,
+            targetHandle: targetSide,
+          };
+        }
+
+        // Keep loop/return edges off the same side as primary LR flow.
+        if (t.y >= s.y + 8) {
+          return {
+            ...edge,
+            type: 'step',
+            sourceHandle: 'source-bottom',
+            targetHandle: 'target-top',
+          };
+        }
+        if (t.y <= s.y - 8) {
+          return {
+            ...edge,
+            type: 'step',
+            sourceHandle: 'source-top',
+            targetHandle: 'target-bottom',
+          };
+        }
+        return {
+          ...edge,
+          type: 'step',
+          sourceHandle: isBackward ? 'source-left' : edge.sourceHandle,
+          targetHandle: isBackward ? 'target-right' : edge.targetHandle,
+        };
+      }
+      return edge;
+    });
+
+    return { nodes: rfNodes, edges: withEdgeLabelStyles(routedAscii, rfNodes) };
   }
 
   const layouted = getLayoutedElements(rfNodes, rfEdges, dir);

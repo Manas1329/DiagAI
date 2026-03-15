@@ -41,6 +41,11 @@ const TextInputPanel: React.FC<TextInputPanelProps> = ({ text, onChange, onParse
 
   const insertHint = (sample: string) => onChange(sample);
 
+  const handleParseAndClose = () => {
+    onParse();
+    setIsExpanded(false);
+  };
+
   useEffect(() => {
     if (!isExpanded) return;
 
@@ -185,7 +190,7 @@ const TextInputPanel: React.FC<TextInputPanelProps> = ({ text, onChange, onParse
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={(e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                  onParse();
+                  handleParseAndClose();
                 }
               }}
               spellCheck={false}
@@ -210,7 +215,7 @@ const TextInputPanel: React.FC<TextInputPanelProps> = ({ text, onChange, onParse
               <span style={{ color: '#94a3b8', fontSize: 11 }}>
                 Press Esc to close, Ctrl + Enter to generate diagram
               </span>
-              <button className="btn-primary" onClick={onParse}>
+              <button className="btn-primary" onClick={handleParseAndClose}>
                 Generate Diagram
               </button>
             </div>
