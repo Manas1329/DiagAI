@@ -355,6 +355,12 @@ function modelToFlow(
 
   const asciiMinCol = asciiCols.length ? asciiCols[0] : 0;
   const asciiMinRow = asciiRows.length ? asciiRows[0] : 0;
+  const asciiMaxCol = asciiCols.length ? asciiCols[asciiCols.length - 1] : 0;
+  const uniqueAsciiCols = Array.from(new Set(asciiCols));
+  const colRankByValue = new Map<number, number>();
+  uniqueAsciiCols.forEach((c, i) => colRankByValue.set(c, i));
+  const shouldCompressAsciiCols = isAscii && uniqueAsciiCols.length >= 4 && (asciiMaxCol - asciiMinCol) > 26;
+  const compactColStep = 230;
 
   const rfNodes: Node[] = model.nodes.map((n) => ({
     id:       n.id,
@@ -362,7 +368,9 @@ function modelToFlow(
     data:     { id: n.id, label: n.label, nodeType: n.type },
     position: isAscii
       ? {
-          x: Math.round((Number((n.metadata as any)?.asciiCol ?? 0) - asciiMinCol) * colScale + 60),
+          x: shouldCompressAsciiCols
+            ? Math.round((colRankByValue.get(Number((n.metadata as any)?.asciiCol ?? 0)) ?? 0) * compactColStep + 60)
+            : Math.round((Number((n.metadata as any)?.asciiCol ?? 0) - asciiMinCol) * colScale + 60),
           y: Math.round((Number((n.metadata as any)?.asciiRow ?? 0) - asciiMinRow) * rowScale + 60),
         }
       : { x: 0, y: 0 },

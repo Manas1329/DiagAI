@@ -47,7 +47,7 @@ export function detectFormat(text: string): InputFormat {
   const trimmed = text.trim();
   if (/^@startuml/i.test(trimmed)) return 'plantuml';
   if (/^(flowchart|graph)\s+(TD|LR|TB|RL|BT)\b/i.test(trimmed)) return 'mermaid';
-  if (/^\s*\|\s*--/m.test(text) || /^\s*\|\s*$/m.test(text)) return 'tree';
+  if (/^\s*\|\s*--/m.test(text)) return 'tree';
   if (/(?:─{2,}|-{2,})/.test(text) && /[│|└┘┌┐]/.test(text)) return 'ascii';
   if (/[├└│]/m.test(text)) return 'tree';
   if (/\n\s*[↓↑→←⬇⬆➡⬅▼▲►◄]\s*\n/.test(text)) return 'vertical';
@@ -314,30 +314,55 @@ function parseAscii(text: string): GraphModel {
     }
   }
 
-  for (const top of nodesWithPos) {
-    const lower = nodesWithPos
-      .filter((n) => n.row > top.row && Math.abs(n.center - top.center) <= 2)
-      .sort((a, b) => a.row - b.row)[0];
-
-    if (!lower) continue;
-
-    let hasVertical = false;
+  const hasVerticalPath = (
+    fromRow: number,
+    fromCenter: number,
+    toRow: number,
+    toCenter: number
+  ): { ok: boolean; sawUp: boolean; sawDown: boolean } => {
+    let sawAny = false;
     let sawUp = false;
     let sawDown = false;
+    const total = Math.max(1, toRow - fromRow);
 
-    for (let r = top.row + 1; r < lower.row; r++) {
+    for (let r = fromRow + 1; r < toRow; r++) {
       const line = lines[r] ?? '';
-      const from = Math.max(0, top.center - 2);
-      const to = Math.min(line.length, top.center + 3);
+      const t = (r - fromRow) / total;
+      const expected = Math.round(fromCenter + (toCenter - fromCenter) * t);
+      const from = Math.max(0, expected - 2);
+      const to = Math.min(line.length, expected + 3);
       const window = line.slice(from, to);
-      if (/[|│↑↓]/.test(window)) hasVertical = true;
+      if (/[|│↑↓]/.test(window)) sawAny = true;
       if (/↑/.test(window)) sawUp = true;
       if (/↓/.test(window)) sawDown = true;
     }
 
-    if (!hasVertical) continue;
-    if (sawUp && !sawDown) addEdge(lower.node, top.node, sawUp || sawDown);
-    else addEdge(top.node, lower.node, sawUp || sawDown);
+    return { ok: sawAny, sawUp, sawDown };
+  };
+
+  for (const top of nodesWithPos) {
+    let lower: typeof nodesWithPos[number] | undefined;
+    let signals: { ok: boolean; sawUp: boolean; sawDown: boolean } | undefined;
+
+    for (let r = top.row + 1; r <= lines.length; r++) {
+      const rowNodes = (byRow.get(r) ?? [])
+        .filter((n) => Math.abs(n.center - top.center) <= 10)
+        .sort((a, b) => Math.abs(a.center - top.center) - Math.abs(b.center - top.center));
+
+      for (const candidate of rowNodes) {
+        const path = hasVerticalPath(top.row, top.center, candidate.row, candidate.center);
+        if (!path.ok) continue;
+        lower = candidate;
+        signals = path;
+        break;
+      }
+
+      if (lower) break;
+    }
+
+    if (!lower || !signals) continue;
+    if (signals.sawUp && !signals.sawDown) addEdge(lower.node, top.node, signals.sawUp || signals.sawDown);
+    else addEdge(top.node, lower.node, signals.sawUp || signals.sawDown);
   }
 
   // Loopback pattern: arrow hint line + "└── Improve ──┘" line.
